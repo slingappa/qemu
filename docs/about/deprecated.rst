@@ -224,6 +224,13 @@ in qemu, and are old and unmaintained now.
 The CPUs as well as corresponding Power8NVL and Power8E PnvChips will also
 be considered deprecated.
 
+``debug=true|false`` on RISC-V CPUs (since 11.1)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This option, since QEMU 10.1, has been a simple alias to the ``sdtrig``
+extension. Users are advised to enable/disable ``sdtrig`` directly instead
+of using ``debug``.
+
 System emulator machines
 ------------------------
 
