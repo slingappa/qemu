@@ -207,7 +207,9 @@ static void riscv_rpmi_reset(DeviceState *dev)
 
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 {
-
+    for (uint32_t i = ARRAY_SIZE(riscv_rpmi_service_ops); i > 0; i--) {
+        riscv_rpmi_service_ops[i - 1].remove(s);
+    }
 
     if (s->context) {
         rpmi_context_destroy(s->context);
@@ -242,6 +244,30 @@ bool riscv_rpmi_service_enabled(RiscvRpmiState *s, RiscvRpmiServiceKind kind)
     }
 
     return false;
+}
+
+bool riscv_rpmi_context_add_group(RiscvRpmiState *s,
+                                  struct rpmi_service_group *group,
+                                  const char *name,
+                                  Error **errp)
+{
+    enum rpmi_error rc;
+
+    rc = rpmi_context_add_group(s->context, group);
+    if (rc != RPMI_SUCCESS) {
+        error_setg(errp, "failed to add RPMI %s service group: %d", name, rc);
+        return false;
+    }
+
+    return true;
+}
+
+void riscv_rpmi_context_remove_group(RiscvRpmiState *s,
+                                     struct rpmi_service_group *group)
+{
+    if (s->context && group) {
+        rpmi_context_remove_group(s->context, group);
+    }
 }
 
 static bool riscv_rpmi_validate_config(RiscvRpmiState *s, Error **errp)
@@ -316,11 +342,15 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
                                          const RiscvRpmiServiceConfig *service,
                                          Error **errp)
 {
-    switch (service->kind) {
-    default:
+    const RiscvRpmiServiceOps *ops;
+
+    ops = riscv_rpmi_service_ops_by_kind(service->kind);
+    if (!ops) {
         error_setg(errp, "unsupported RPMI service kind %d", service->kind);
         return false;
     }
+
+    return ops->add(s, errp);
 }
 
 static bool riscv_rpmi_init_services(RiscvRpmiState *s, Error **errp)
@@ -447,9 +477,30 @@ static void riscv_rpmi_register_types(void)
 
 type_init(riscv_rpmi_register_types)
 
+static void riscv_rpmi_configure_base(RiscvRpmiState *s,
+                                      const RiscvRpmiConfig *cfg)
+{
+    s->platform_info = g_strdup(cfg->platform_info);
+    s->machine_ops = cfg->machine_ops;
+    s->machine_opaque = cfg->machine_opaque;
+    s->services = cfg->services;
+    s->service_count = cfg->service_count;
+
+    if (cfg->hart_count) {
+        s->hart_count = cfg->hart_count;
+        if (cfg->hart_ids) {
+            s->hart_ids = g_memdup2(cfg->hart_ids,
+                                    cfg->hart_count * sizeof(*cfg->hart_ids));
+        }
+    }
+
+    riscv_rpmi_configure_services(s, cfg);
+}
+
 DeviceState *riscv_rpmi_create(const RiscvRpmiConfig *cfg, Error **errp)
 {
     DeviceState *dev;
+    RiscvRpmiState *s;
 
     if (!cfg) {
         error_setg(errp, "missing RPMI configuration");
@@ -462,17 +513,8 @@ DeviceState *riscv_rpmi_create(const RiscvRpmiConfig *cfg, Error **errp)
     qdev_prop_set_uint32(dev, "a2p-req-size", cfg->a2p_req_size);
     qdev_prop_set_uint32(dev, "p2a-req-size", cfg->p2a_req_size);
 
-    RISCV_RPMI(dev)->platform_info = g_strdup(cfg->platform_info);
-    if (cfg->hart_count) {
-        RISCV_RPMI(dev)->hart_count = cfg->hart_count;
-        if (cfg->hart_ids) {
-            RISCV_RPMI(dev)->hart_ids = g_memdup2(cfg->hart_ids,
-                                                   cfg->hart_count *
-                                                   sizeof(*cfg->hart_ids));
-        }
-    }
-    RISCV_RPMI(dev)->services = cfg->services;
-    RISCV_RPMI(dev)->service_count = cfg->service_count;
+    s = RISCV_RPMI(dev);
+    riscv_rpmi_configure_base(s, cfg);
 
     if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), errp)) {
         return NULL;
