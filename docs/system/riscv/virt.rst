@@ -21,6 +21,7 @@ The ``virt`` machine supports the following devices:
 * 1 SiFive Test device
 * 8 virtio-mmio transport devices
 * 1 generic PCIe host bridge
+* Optional RISC-V RPMI shared-memory transport
 * The fw_cfg device that allows a guest to obtain data from QEMU
 
 The hypervisor extension has been enabled for the default CPU, so virtual
@@ -150,32 +151,61 @@ The following machine-specific options are supported:
 
   Enables the RISC-V RPMI shared-memory transport. This option defaults to
   "off", is TCG-only, and is available only when QEMU is built with librpmi
-  support. The initial ``virt`` implementation exposes RPMI system reset,
-  system suspend, and HSM service groups. System reset can request shutdown or
-  cold reboot through RPMI. HSM uses the ``virt`` hart IDs and supports hart
-  discovery, status, start, stop, and suspend commands. System suspend uses
-  QEMU's suspend and wakeup path. Migration is currently blocked while RPMI
-  transport and service VMState support is being designed.
+  support. The
+  ``virt`` implementation exposes RPMI system reset, system suspend, HSM,
+  CPPC, clock, and Management Mode service groups. System reset can request
+  shutdown or cold reboot through RPMI. HSM uses the ``virt`` hart IDs and
+  supports hart discovery, status, start, stop, and suspend commands across
+  all configured sockets through one SoC-wide RPMI transport. System
+  suspend uses QEMU's suspend and wakeup path. CPPC exposes a virtual
+  synth-compatible performance profile with a dedicated fast-channel
+  shared-memory region; it does not model host CPU frequency scaling. When
+  ``aia=aplic-imsic`` is selected, ``virt`` also exposes the RPMI System MSI
+  service and SBI MPXY System MSI frontend. System MSI targets are accepted
+  only inside the S-mode IMSIC MMIO window. QEMU ``system_powerdown``,
+  ``system_reset``, and system suspend inject the shutdown, reboot, and
+  suspend System MSIs respectively when enabled by the guest. The clock service
+  exposes a synthetic RPMI clock table for firmware compatibility. Management
+  Mode reports attributes, registers EFI handlers, and provides an in-memory
+  EFI variable backend whose contents persist for the lifetime of the QEMU
+  process, including across guest-initiated system resets. Migration is
+  currently blocked while RPMI transport and service VMState support is being
+  designed.
+
+- rpmi-mm-store=path
+
+  Selects an optional host file used by RPMI Management Mode to persist EFI
+  variables across QEMU process restarts. If this option is omitted, the MM EFI
+  variable backend is in-memory only. RPMI logging is exposed with RPMI
+  because QEMU requires a librpmi build with the logging service group API.
 
 RPMI firmware and guest smoke
 -----------------------------
 
 A firmware-level RPMI smoke test can be run with OpenSBI, a Linux kernel, and a
-RISC-V disk image:
+RISC-V disk image. The example below enables the full ``virt`` RPMI topology,
+including System MSI through AIA IMSIC, and keeps the disk read-only through a
+snapshot overlay:
 
 .. code-block:: bash
 
   $ qemu-system-riscv64 \
-      -machine virt,rpmi=on \
+      -machine virt,rpmi=on,aia=aplic-imsic \
       -cpu rv64 -smp 4 -m 4G -nographic \
       -bios /path/to/fw_jump.bin \
       -kernel /path/to/Image \
-      -append "root=/dev/vda rw console=ttyS0 earlycon=sbi" \
-      -drive file=/path/to/rootfs.img,format=raw,if=virtio,snapshot=on
+      -append "root=LABEL=cloudimg-rootfs rw console=ttyS0 earlycon=sbi" \
+      -drive file=/path/to/ubuntu-preinstalled-server-riscv64.img,format=raw,if=virtio,snapshot=on \
+      -netdev user,id=net0,hostfwd=tcp::10022-:22 \
+      -device virtio-net-device,netdev=net0
 
-The OpenSBI banner should report RPMI-backed HSM and system suspend support.
-After the guest reaches a shell, normal guest reboot/poweroff commands exercise
-the RPMI system reset path.
+The OpenSBI banner should report RPMI-backed HSM, system suspend, CPPC, and SBI
+MPXY support. After the guest reaches a shell, use guest-side RPMI/SBI probes to
+validate service groups, for example checking ``dmesg`` for RPMI/SBI messages,
+reading CPPC sysfs entries when the guest kernel exposes them, and issuing
+normal guest reboot/poweroff commands to exercise RPMI system reset paths. The
+synthetic clock table exposed by ``virt`` is an intentional firmware
+compatibility policy; it is not host CPU clock-frequency modelling.
 
 RPMI device tree policy
 -----------------------
@@ -183,9 +213,13 @@ RPMI device tree policy
 RPMI is currently described through FDT only; no ACPI representation is emitted
 for the RPMI transport or service groups. The ``virt`` machine uses the
 ``riscv,rpmi-shmem-mbox`` shared-memory mailbox node plus child service nodes
-with ``riscv,rpmi-*`` compatible strings. These binding names are part of the
-RPMI RFC surface and may be revised if the RISC-V RPMI bindings change during
-review.
+with ``riscv,rpmi-*`` compatible strings for direct RPMI services. Services that
+are surfaced to S-mode through SBI MPXY are represented in two places: the RPMI
+mailbox child records the RPMI service group and MPXY channel with
+``riscv,sbi-mpxy-channel-id``, and the S-mode frontend is represented by an
+SBI MPXY mailbox node and frontend nodes such as ``riscv,rpmi-system-msi`` and
+``riscv,rpmi-clock``. These binding names are part of the RPMI RFC surface and
+may be revised if the RISC-V RPMI/SBI MPXY bindings change during review.
 
 Running Linux kernel
 --------------------
