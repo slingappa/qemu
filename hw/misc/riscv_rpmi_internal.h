@@ -16,6 +16,7 @@
 #include "librpmi.h"
 
 #define RPMI_PLAT_INFO "QEMU RISC-V RPMI"
+#define RPMI_CPPC_FREQ_MHZ_TO_HZ 1000000ULL
 
 extern const struct rpmi_shmem_platform_ops rpmi_shmem_qemu_ops;
 bool riscv_rpmi_service_enabled(RiscvRpmiState *s,
@@ -38,6 +39,16 @@ void riscv_rpmi_hsm_resume(RiscvRpmiState *s, uint32_t hart_index,
 
 bool riscv_rpmi_syssusp_add(RiscvRpmiState *s, Error **errp);
 void riscv_rpmi_syssusp_remove(RiscvRpmiState *s);
+
+void riscv_rpmi_cppc_configure(RiscvRpmiState *s,
+                                const RiscvRpmiConfig *cfg);
+bool riscv_rpmi_cppc_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_cppc_remove(RiscvRpmiState *s);
+bool riscv_rpmi_cppc_realize_fastchan(RiscvRpmiState *s, DeviceState *dev,
+                                      Error **errp);
+void riscv_rpmi_cppc_unrealize_fastchan(RiscvRpmiState *s);
+void riscv_rpmi_cppc_reset_fastchan(RiscvRpmiState *s);
+bool riscv_rpmi_validate_cppc_config(RiscvRpmiState *s, Error **errp);
 
 
 #endif
