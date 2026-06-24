@@ -16,6 +16,7 @@
 typedef struct RiscvRpmiServiceConfig RiscvRpmiServiceConfig;
 
 #define RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL 0x1000
+#define RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL  0x1001
 
 typedef struct RiscvRpmiFdtMboxConfig {
     hwaddr shmem_base;
@@ -39,5 +40,7 @@ void riscv_rpmi_fdt_add_sbi_mpxy_mbox(void *fdt, uint32_t *phandle,
 void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt, uint32_t *phandle,
                                         uint32_t msi_phandle,
                                         uint32_t mpxy_mbox_phandle);
+void riscv_rpmi_fdt_add_sbi_mpxy_clock(void *fdt,
+                                       uint32_t mpxy_mbox_phandle);
 
 #endif
