@@ -222,6 +222,10 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 
 
 
+    if (s->context && s->syssusp_group) {
+        rpmi_context_remove_group(s->context, s->syssusp_group);
+    }
+    riscv_rpmi_syssusp_destroy(s);
 
 
 
@@ -377,6 +381,27 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
         }
 
         s->hsm_group = group;
+        return true;
+    case RISCV_RPMI_SERVICE_SYSSUSP:
+        if (s->syssusp_group) {
+            error_setg(errp, "duplicate RPMI system suspend descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_syssusp_create(s, &group, errp)) {
+            return false;
+        }
+
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            s->syssusp_group = group;
+            riscv_rpmi_syssusp_destroy(s);
+            error_setg(errp,
+                       "failed to add RPMI system suspend group: %d", rc);
+            return false;
+        }
+
+        s->syssusp_group = group;
         return true;
     case RISCV_RPMI_SERVICE_SYSRESET:
         if (s->sysreset_group) {
