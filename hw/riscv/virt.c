@@ -508,6 +508,13 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .service_group = RPMI_SRVGRP_CPPC,
     },
     {
+        .node_name = "clock",
+        .compatible = "riscv,rpmi-mpxy-clock",
+        .service_group = RPMI_SRVGRP_CLOCK,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
+    },
+    {
         .node_name = "sysmsi",
         .compatible = "riscv,rpmi-mpxy-system-msi",
         .service_group = RPMI_SRVGRP_SYSTEM_MSI,
@@ -586,6 +593,8 @@ static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
                                          msi_phandle, &mpxy_mbox_handle);
         riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(MACHINE(s)->fdt, phandle,
                                            msi_phandle, mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_clock(MACHINE(s)->fdt,
+                                          mpxy_mbox_handle);
     }
 
     for (i = 0; i < virt_rpmi_service_count(s); i++) {
