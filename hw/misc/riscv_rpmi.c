@@ -215,6 +215,13 @@ static void riscv_rpmi_reset(DeviceState *dev)
         }
     }
 
+    if (s->has_cppc_fastchan) {
+        memset(memory_region_get_ram_ptr(&s->cppc_fastchan), 0,
+               s->cppc_fastchan_size);
+        memory_region_set_dirty(&s->cppc_fastchan, 0,
+                                s->cppc_fastchan_size);
+        riscv_rpmi_cppc_reset_state(s);
+    }
 }
 
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
@@ -227,6 +234,10 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
     }
     riscv_rpmi_syssusp_destroy(s);
 
+    if (s->context && s->cppc_group) {
+        rpmi_context_remove_group(s->context, s->cppc_group);
+    }
+    riscv_rpmi_cppc_destroy(s);
 
 
     if (s->context && s->hsm_group) {
@@ -351,7 +362,7 @@ static bool riscv_rpmi_validate_config(RiscvRpmiState *s, Error **errp)
         return false;
     }
 
-    return true;
+    return riscv_rpmi_validate_cppc_config(s, errp);
 }
 
 static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
@@ -362,6 +373,25 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
     struct rpmi_service_group *group;
 
     switch (service->kind) {
+    case RISCV_RPMI_SERVICE_CPPC:
+        if (s->cppc_group) {
+            error_setg(errp, "duplicate RPMI CPPC service descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_cppc_create(s, &group, errp)) {
+            return false;
+        }
+
+        s->cppc_group = group;
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            riscv_rpmi_cppc_destroy(s);
+            error_setg(errp, "failed to add RPMI CPPC service group: %d", rc);
+            return false;
+        }
+
+        return true;
     case RISCV_RPMI_SERVICE_HSM:
         if (s->hsm_group) {
             error_setg(errp, "duplicate RPMI HSM service descriptor");
@@ -496,6 +526,24 @@ static void riscv_rpmi_realize(DeviceState *dev, Error **errp)
 
     memory_region_add_subregion(get_system_memory(), s->shmem_base, &s->shmem);
     s->has_shmem = true;
+
+    if (riscv_rpmi_service_enabled(s, RISCV_RPMI_SERVICE_CPPC)) {
+        g_autofree char *fastchan_name =
+            g_strdup_printf("rpmi-cppc-fastchan@%" PRIx64,
+                            s->cppc_fastchan_base);
+
+        if (!memory_region_init_ram(&s->cppc_fastchan, OBJECT(dev),
+                                    fastchan_name, s->cppc_fastchan_size,
+                                    errp)) {
+            riscv_rpmi_cleanup(s);
+            return;
+        }
+
+        memory_region_add_subregion(get_system_memory(),
+                                    s->cppc_fastchan_base,
+                                    &s->cppc_fastchan);
+        s->has_cppc_fastchan = true;
+    }
 
     if (!riscv_rpmi_init_context(s, errp)) {
         riscv_rpmi_cleanup(s);
