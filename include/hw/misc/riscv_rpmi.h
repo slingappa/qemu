@@ -37,6 +37,7 @@
 #define RISCV_RPMI_SRVGRP_SYSTEM_SUSPEND 4
 #define RISCV_RPMI_SRVGRP_CPPC           6
 #define RISCV_RPMI_SRVGRP_SYSTEM_MSI     2
+#define RISCV_RPMI_SRVGRP_CLOCK          8
 
 #define TYPE_RISCV_RPMI "riscv-rpmi"
 OBJECT_DECLARE_SIMPLE_TYPE(RiscvRpmiState, RISCV_RPMI)
@@ -55,6 +56,7 @@ typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_SYSSUSP,
     RISCV_RPMI_SERVICE_CPPC,
     RISCV_RPMI_SERVICE_SYSMSI,
+    RISCV_RPMI_SERVICE_CLOCK,
 } RiscvRpmiServiceKind;
 
 typedef struct RiscvRpmiCppcProfile {
@@ -67,6 +69,11 @@ typedef struct RiscvRpmiCppcProfile {
     uint32_t nominal_freq;
     uint32_t transition_latency;
 } RiscvRpmiCppcProfile;
+
+typedef struct RiscvRpmiClockState {
+    uint32_t state;
+    uint64_t rate;
+} RiscvRpmiClockState;
 
 typedef struct RiscvRpmiMachineOps {
     void (*system_reset)(void *opaque);
@@ -138,6 +145,8 @@ struct RiscvRpmiState {
     int64_t cppc_counter_base_ns;
     struct rpmi_service_group *cppc_group;
     struct rpmi_service_group *sysmsi_group;
+    RiscvRpmiClockState *clock_state;
+    struct rpmi_service_group *clock_group;
     Notifier powerdown_notifier;
     Notifier suspend_notifier;
     bool powerdown_notifier_registered;

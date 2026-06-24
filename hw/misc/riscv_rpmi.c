@@ -221,6 +221,10 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .configure = riscv_rpmi_sysmsi_configure,
         .add = riscv_rpmi_sysmsi_add,
         .remove = riscv_rpmi_sysmsi_remove,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_CLOCK,
+        .add = riscv_rpmi_clock_add,
+        .remove = riscv_rpmi_clock_remove,
     },
 };
 

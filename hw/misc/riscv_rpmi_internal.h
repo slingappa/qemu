@@ -17,6 +17,7 @@
 
 #define RPMI_PLAT_INFO "QEMU RISC-V RPMI"
 #define RPMI_CPPC_FREQ_MHZ_TO_HZ 1000000ULL
+#define RISCV_RPMI_CLOCK_COUNT 6
 
 extern const struct rpmi_shmem_platform_ops rpmi_shmem_qemu_ops;
 bool riscv_rpmi_service_enabled(RiscvRpmiState *s,
@@ -53,6 +54,9 @@ void riscv_rpmi_sysmsi_configure(RiscvRpmiState *s,
                                   const RiscvRpmiConfig *cfg);
 bool riscv_rpmi_sysmsi_add(RiscvRpmiState *s, Error **errp);
 void riscv_rpmi_sysmsi_remove(RiscvRpmiState *s);
+
+bool riscv_rpmi_clock_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_clock_remove(RiscvRpmiState *s);
 
 
 #endif
