@@ -38,6 +38,7 @@
 #define RISCV_RPMI_SRVGRP_CPPC           6
 #define RISCV_RPMI_SRVGRP_SYSTEM_MSI     2
 #define RISCV_RPMI_SRVGRP_CLOCK          8
+#define RISCV_RPMI_SRVGRP_MANAGEMENT_MODE 11
 #define RISCV_RPMI_SRVGRP_LOGGING         14
 #define RISCV_RPMI_LOGGING_DATA_MAX 64
 
@@ -50,6 +51,7 @@ struct rpmi_shmem;
 struct rpmi_transport;
 struct rpmi_cppc_regs;
 struct rpmi_hsm;
+typedef struct RiscvRpmiMmVariable RiscvRpmiMmVariable;
 
 typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_INVALID = 0,
@@ -59,6 +61,7 @@ typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_CPPC,
     RISCV_RPMI_SERVICE_SYSMSI,
     RISCV_RPMI_SERVICE_CLOCK,
+    RISCV_RPMI_SERVICE_MM,
     RISCV_RPMI_SERVICE_LOGGING,
 } RiscvRpmiServiceKind;
 
@@ -101,6 +104,9 @@ typedef struct RiscvRpmiConfig {
     uint32_t a2p_req_size;
     uint32_t p2a_req_size;
     const char *platform_info;
+    BlockBackend *mm_store_blk;
+    uint64_t mm_store_offset;
+    uint64_t mm_store_size;
     const RiscvRpmiMachineOps *machine_ops;
     hwaddr sysmsi_msi_base;
     hwaddr sysmsi_msi_size;
@@ -125,6 +131,9 @@ struct RiscvRpmiState {
     uint32_t a2p_req_size;
     uint32_t p2a_req_size;
     char *platform_info;
+    BlockBackend *mm_store_blk;
+    uint64_t mm_store_offset;
+    uint64_t mm_store_size;
     const RiscvRpmiMachineOps *machine_ops;
     hwaddr sysmsi_msi_base;
     hwaddr sysmsi_msi_size;
@@ -148,6 +157,9 @@ struct RiscvRpmiState {
     struct rpmi_service_group *sysmsi_group;
     RiscvRpmiClockState *clock_state;
     struct rpmi_service_group *clock_group;
+    struct rpmi_service_group *mm_group;
+    RiscvRpmiMmVariable *mm_variables;
+    uint32_t mm_variable_count;
     struct rpmi_service_group *logging_group;
     uint32_t logging_type;
     uint32_t logging_data_len;
