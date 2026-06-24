@@ -1056,11 +1056,20 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .compatible = "riscv,rpmi-cppc",
         .service_group = RISCV_RPMI_SRVGRP_CPPC,
     },
+    {
+        .kind = RISCV_RPMI_SERVICE_SYSMSI,
+        .node_name = "sysmsi",
+        .compatible = "riscv,rpmi-mpxy-system-msi",
+        .service_group = RISCV_RPMI_SRVGRP_SYSTEM_MSI,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL,
+    },
 };
 
 static uint32_t virt_rpmi_service_count(RISCVVirtState *s)
 {
-    return ARRAY_SIZE(virt_rpmi_services);
+    return s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC ?
+           ARRAY_SIZE(virt_rpmi_services) : ARRAY_SIZE(virt_rpmi_services) - 1;
 }
 
 static void virt_rpmi_system_reset(void)
@@ -1110,6 +1119,8 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
         .machine_ops = &virt_rpmi_machine_ops,
         .hart_ids = hart_ids,
         .hart_count = hart_count,
+        .sysmsi_msi_base = s->memmap[VIRT_IMSIC_S].base,
+        .sysmsi_msi_size = s->memmap[VIRT_IMSIC_S].size,
         .cppc_fastchan_base = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].base,
         .cppc_fastchan_size = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].size,
         .cppc_perf_request_offset = 0,
@@ -1126,6 +1137,7 @@ static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
 {
     RiscvRpmiConfig rpmi_cfg = virt_rpmi_config(s, NULL, 0);
     uint32_t rpmi_mbox_handle;
+    uint32_t mpxy_mbox_handle;
     uint32_t i;
     RiscvRpmiFdtMboxConfig cfg = {
         .shmem_base = rpmi_cfg.shmem_base,
@@ -1137,6 +1149,13 @@ static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
 
     riscv_rpmi_fdt_add_mbox(MACHINE(s)->fdt, &cfg, phandle,
                             &rpmi_mbox_handle);
+
+    if (s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC) {
+        riscv_rpmi_fdt_add_sbi_mpxy_mbox(MACHINE(s)->fdt, phandle, true,
+                                         msi_phandle, &mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(MACHINE(s)->fdt, phandle,
+                                           msi_phandle, mpxy_mbox_handle);
+    }
 
     for (i = 0; i < rpmi_cfg.service_count; i++) {
         riscv_rpmi_fdt_add_service_node(MACHINE(s)->fdt, rpmi_cfg.shmem_base,

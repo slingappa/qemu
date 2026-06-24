@@ -35,3 +35,22 @@ void riscv_rpmi_fdt_add_service_node(void *fdt G_GNUC_UNUSED,
 {
     g_assert_not_reached();
 }
+
+void riscv_rpmi_fdt_add_sbi_mpxy_mbox(void *fdt G_GNUC_UNUSED,
+                                      uint32_t *phandle G_GNUC_UNUSED,
+                                      bool has_msi_parent G_GNUC_UNUSED,
+                                      uint32_t msi_phandle G_GNUC_UNUSED,
+                                      uint32_t *mpxy_mbox_phandle
+                                      G_GNUC_UNUSED)
+{
+    g_assert_not_reached();
+}
+
+void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt G_GNUC_UNUSED,
+                                        uint32_t *phandle G_GNUC_UNUSED,
+                                        uint32_t msi_phandle G_GNUC_UNUSED,
+                                        uint32_t mpxy_mbox_phandle
+                                        G_GNUC_UNUSED)
+{
+    g_assert_not_reached();
+}
