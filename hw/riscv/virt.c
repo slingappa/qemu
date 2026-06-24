@@ -55,6 +55,7 @@
 #include "system/kvm.h"
 #include "system/tpm.h"
 #include "system/qtest.h"
+#include "system/blockdev.h"
 #include "hw/pci/pci.h"
 #include "hw/pci-host/gpex.h"
 #include "hw/display/ramfb.h"
@@ -124,6 +125,7 @@ static const MemMapEntry virt_memmap[] = {
 static MemMapEntry virt_high_pcie_memmap;
 
 #define VIRT_FLASH_SECTOR_SIZE (256 * KiB)
+#define VIRT_RPMI_MM_PFLASH_STORE_SIZE (1 * MiB)
 
 static PFlashCFI01 *virt_flash_create1(RISCVVirtState *s,
                                        const char *name,
@@ -885,13 +887,19 @@ static void create_fdt_flash(RISCVVirtState *s)
     MachineState *ms = MACHINE(s);
     hwaddr flashsize = s->memmap[VIRT_FLASH].size / 2;
     hwaddr flashbase = s->memmap[VIRT_FLASH].base;
+    hwaddr flash1size = flashsize;
     g_autofree char *name = g_strdup_printf("/flash@%" PRIx64, flashbase);
+
+    if (s->have_rpmi && pflash_cfi01_get_blk(s->flash[1])) {
+        assert(flash1size > VIRT_RPMI_MM_PFLASH_STORE_SIZE);
+        flash1size -= VIRT_RPMI_MM_PFLASH_STORE_SIZE;
+    }
 
     qemu_fdt_add_subnode(ms->fdt, name);
     qemu_fdt_setprop_string(ms->fdt, name, "compatible", "cfi-flash");
     qemu_fdt_setprop_sized_cells(ms->fdt, name, "reg",
                                  2, flashbase, 2, flashsize,
-                                 2, flashbase + flashsize, 2, flashsize);
+                                 2, flashbase + flashsize, 2, flash1size);
     qemu_fdt_setprop_cell(ms->fdt, name, "bank-width", 4);
 }
 
@@ -1046,6 +1054,13 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
     },
     {
+        .node_name = "mm",
+        .compatible = "riscv,rpmi-mpxy-mm",
+        .service_group = RPMI_SRVGRP_MANAGEMENT_MODE,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_MM_CHANNEL,
+    },
+    {
         .node_name = "logging",
         .compatible = "riscv,rpmi-logging",
         .service_group = RPMI_SRVGRP_LOGGING,
@@ -1100,8 +1115,20 @@ static const RiscvRpmiMachineOps virt_rpmi_machine_ops = {
 
 static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
                                         const uint32_t *hart_ids,
-                                        uint32_t hart_count)
+                                        uint32_t hart_count,
+                                        BlockBackend *mm_store_blk)
 {
+    uint64_t mm_store_offset = 0;
+    uint64_t mm_store_size = 0;
+
+    if (mm_store_blk) {
+        hwaddr flashsize = s->memmap[VIRT_FLASH].size / 2;
+
+        assert(flashsize > VIRT_RPMI_MM_PFLASH_STORE_SIZE);
+        mm_store_offset = flashsize - VIRT_RPMI_MM_PFLASH_STORE_SIZE;
+        mm_store_size = VIRT_RPMI_MM_PFLASH_STORE_SIZE;
+    }
+
     return (RiscvRpmiConfig) {
         .doorbell_base = s->memmap[VIRT_RPMI_DOORBELL].base,
         .shmem_base = s->memmap[VIRT_RPMI_SHMEM].base,
@@ -1109,6 +1136,9 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
         .a2p_req_size = VIRT_RPMI_A2P_REQ_SIZE,
         .p2a_req_size = VIRT_RPMI_P2A_REQ_SIZE,
         .platform_info = "QEMU RISC-V virt RPMI",
+        .mm_store_blk = mm_store_blk,
+        .mm_store_offset = mm_store_offset,
+        .mm_store_size = mm_store_size,
         .machine_ops = &virt_rpmi_machine_ops,
         .hart_ids = hart_ids,
         .hart_count = hart_count,
@@ -1128,7 +1158,7 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
 static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
                             uint32_t msi_phandle)
 {
-    RiscvRpmiConfig rpmi_cfg = virt_rpmi_config(s, NULL, 0);
+    RiscvRpmiConfig rpmi_cfg = virt_rpmi_config(s, NULL, 0, NULL);
     uint32_t rpmi_mbox_handle;
     uint32_t mpxy_mbox_handle;
     uint32_t i;
@@ -1671,25 +1701,6 @@ static void virt_machine_init(MachineState *machine)
     /* SiFive Test MMIO device */
     sifive_test_create(s->memmap[VIRT_TEST].base);
 
-    if (s->have_rpmi) {
-        MachineClass *mc = MACHINE_GET_CLASS(machine);
-        const CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(machine);
-        g_autofree uint32_t *rpmi_hart_ids =
-            g_new0(uint32_t, machine->smp.cpus);
-        RiscvRpmiConfig rpmi_cfg;
-        Error *local_err = NULL;
-
-        for (i = 0; i < machine->smp.cpus; i++) {
-            rpmi_hart_ids[i] = possible_cpus->cpus[i].arch_id;
-        }
-
-        rpmi_cfg = virt_rpmi_config(s, rpmi_hart_ids, machine->smp.cpus);
-        if (!riscv_rpmi_create(&rpmi_cfg, &local_err)) {
-            error_report_err(local_err);
-            exit(1);
-        }
-    }
-
     /* VirtIO MMIO devices */
     for (i = 0; i < VIRTIO_COUNT; i++) {
         sysbus_create_simple("virtio-mmio",
@@ -1721,6 +1732,27 @@ static void virt_machine_init(MachineState *machine)
                                   drive_get(IF_PFLASH, 0, i));
     }
     virt_flash_map(s, system_memory);
+
+    if (s->have_rpmi) {
+        MachineClass *mc = MACHINE_GET_CLASS(machine);
+        const CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(machine);
+        g_autofree uint32_t *rpmi_hart_ids =
+            g_new0(uint32_t, machine->smp.cpus);
+        BlockBackend *mm_store_blk = pflash_cfi01_get_blk(s->flash[1]);
+        RiscvRpmiConfig rpmi_cfg;
+        Error *local_err = NULL;
+
+        for (i = 0; i < machine->smp.cpus; i++) {
+            rpmi_hart_ids[i] = possible_cpus->cpus[i].arch_id;
+        }
+
+        rpmi_cfg = virt_rpmi_config(s, rpmi_hart_ids, machine->smp.cpus,
+                                    mm_store_blk);
+        if (!riscv_rpmi_create(&rpmi_cfg, &local_err)) {
+            error_report_err(local_err);
+            exit(1);
+        }
+    }
 
     /* load/create device tree */
     if (machine->dtb) {
