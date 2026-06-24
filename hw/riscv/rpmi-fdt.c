@@ -170,3 +170,15 @@ void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt, uint32_t *phandle,
                            sysmsi_phandle, RPMI_SYS_MSI_SUSPEND_INDEX);
     g_free(name);
 }
+
+void riscv_rpmi_fdt_add_sbi_mpxy_clock(void *fdt,
+                                       uint32_t mpxy_mbox_phandle)
+{
+    g_autofree char *name = g_strdup("/rpmi-clk");
+
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "compatible", "riscv,rpmi-clock");
+    qemu_fdt_setprop_cell(fdt, name, "#clock-cells", 1);
+    qemu_fdt_setprop_cells(fdt, name, "mboxes", mpxy_mbox_phandle,
+                           RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL, 0x0);
+}

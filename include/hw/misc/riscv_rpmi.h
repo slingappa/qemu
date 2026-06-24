@@ -25,6 +25,7 @@ enum rpmi_servicegroup_id {
     RPMI_SRVGRP_SYSTEM_SUSPEND = 0x0004,
     RPMI_SRVGRP_HSM = 0x0005,
     RPMI_SRVGRP_CPPC = 0x0006,
+    RPMI_SRVGRP_CLOCK = 0x0008,
 };
 #endif
 
@@ -64,6 +65,11 @@ typedef struct RiscvRpmiCppcProfile {
     uint32_t nominal_freq;
     uint32_t transition_latency;
 } RiscvRpmiCppcProfile;
+
+typedef struct RiscvRpmiClockState {
+    uint32_t state;
+    uint64_t rate;
+} RiscvRpmiClockState;
 typedef struct RiscvRpmiMachineOps {
     void (*system_reset)(void);
     void (*system_shutdown)(void);
@@ -132,6 +138,8 @@ struct RiscvRpmiState {
     int64_t cppc_counter_base_ns;
     struct rpmi_service_group *cppc_group;
     struct rpmi_service_group *sysmsi_group;
+    RiscvRpmiClockState *clock_state;
+    struct rpmi_service_group *clock_group;
     Notifier powerdown_notifier;
     Notifier suspend_notifier;
     bool powerdown_notifier_registered;
