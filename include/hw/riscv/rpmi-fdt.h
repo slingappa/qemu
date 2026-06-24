@@ -1,0 +1,50 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ * RISC-V RPMI device-tree helpers
+ */
+
+#ifndef HW_RISCV_RPMI_FDT_H
+#define HW_RISCV_RPMI_FDT_H
+
+#include "qemu/osdep.h"
+#include "exec/hwaddr.h"
+#include "hw/misc/riscv_rpmi.h"
+
+#define RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL 0x1000
+#define RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL  0x1001
+#define RISCV_RPMI_SBI_MPXY_MM_CHANNEL     0x1003
+
+typedef struct RiscvRpmiFdtMboxConfig {
+    hwaddr shmem_base;
+    hwaddr doorbell_base;
+    uint32_t a2p_req_size;
+    uint32_t p2a_req_size;
+    uint32_t doorbell_size;
+} RiscvRpmiFdtMboxConfig;
+
+void riscv_rpmi_fdt_add_mbox(void *fdt,
+                             const RiscvRpmiFdtMboxConfig *cfg,
+                             uint32_t *phandle,
+                             uint32_t *mbox_handle);
+void riscv_rpmi_fdt_add_service(void *fdt, hwaddr shmem_base,
+                                const char *node_name,
+                                const char *compatible,
+                                uint32_t mbox_handle,
+                                uint32_t service_group,
+                                bool has_mpxy_channel,
+                                uint32_t mpxy_channel);
+
+void riscv_rpmi_fdt_add_service_node(void *fdt, hwaddr shmem_base,
+                                     const RiscvRpmiServiceConfig *service,
+                                     uint32_t mbox_handle);
+void riscv_rpmi_fdt_add_sbi_mpxy_mbox(void *fdt, uint32_t *phandle,
+                                      bool has_msi_parent,
+                                      uint32_t msi_phandle,
+                                      uint32_t *mpxy_mbox_phandle);
+void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt, uint32_t *phandle,
+                                        uint32_t msi_phandle,
+                                        uint32_t mpxy_mbox_phandle);
+void riscv_rpmi_fdt_add_sbi_mpxy_clock(void *fdt,
+                                       uint32_t mpxy_mbox_phandle);
+
+#endif
