@@ -229,6 +229,10 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .service_group = RPMI_SRVGRP_CPPC,
         .add = riscv_rpmi_cppc_add,
         .remove = riscv_rpmi_cppc_remove,
+    }, {
+        .service_group = RPMI_SRVGRP_SYSTEM_MSI,
+        .add = riscv_rpmi_sysmsi_add,
+        .remove = riscv_rpmi_sysmsi_remove,
     },
 };
 
@@ -262,6 +266,9 @@ static void riscv_rpmi_configure_base(RiscvRpmiState *s,
 
     if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_CPPC)) {
         riscv_rpmi_cppc_configure(s, cfg);
+    }
+    if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_SYSTEM_MSI)) {
+        riscv_rpmi_sysmsi_configure(s, cfg);
     }
 }
 

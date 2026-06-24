@@ -38,6 +38,8 @@ void riscv_rpmi_fdt_add_mbox(void *fdt,
     qemu_fdt_add_subnode(fdt, name);
     qemu_fdt_setprop_string(fdt, name, "compatible", "riscv,rpmi-shmem-mbox");
     qemu_fdt_setprop_cell(fdt, name, "riscv,slot-size", RPMI_QUEUE_SLOT_SIZE);
+    qemu_fdt_setprop_cell(fdt, name, "riscv,p2a-doorbell-sysmsi-index",
+                          RPMI_SYS_MSI_P2A_DB_INDEX);
     qemu_fdt_setprop_cell(fdt, name, "#mbox-cells", 1);
 
     if (cfg->p2a_req_size) {
@@ -100,4 +102,71 @@ void riscv_rpmi_fdt_add_service_node(void *fdt, hwaddr shmem_base,
                                service->service_group,
                                service->has_mpxy_channel,
                                service->mpxy_channel);
+}
+
+void riscv_rpmi_fdt_add_sbi_mpxy_mbox(void *fdt, uint32_t *phandle,
+                                      bool has_msi_parent,
+                                      uint32_t msi_phandle,
+                                      uint32_t *mpxy_mbox_phandle)
+{
+    g_autofree char *name = g_strdup("/sbi-mpxy-mbox");
+    uint32_t mbox_phandle = (*phandle)++;
+
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "compatible", "riscv,sbi-mpxy-mbox");
+    qemu_fdt_setprop_cell(fdt, name, "#mbox-cells", 2);
+    if (has_msi_parent) {
+        qemu_fdt_setprop_cell(fdt, name, "msi-parent", msi_phandle);
+    }
+    qemu_fdt_setprop_cell(fdt, name, "phandle", mbox_phandle);
+    *mpxy_mbox_phandle = mbox_phandle;
+}
+
+void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt, uint32_t *phandle,
+                                        uint32_t msi_phandle,
+                                        uint32_t mpxy_mbox_phandle)
+{
+    char *name;
+    uint32_t sysmsi_phandle = (*phandle)++;
+
+    name = g_strdup("/rpmi-system-msi");
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "compatible", "riscv,rpmi-system-msi");
+    qemu_fdt_setprop_cells(fdt, name, "mboxes", mpxy_mbox_phandle,
+                           RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL, 0x0);
+    qemu_fdt_setprop_cell(fdt, name, "msi-parent", msi_phandle);
+    qemu_fdt_setprop(fdt, name, "interrupt-controller", NULL, 0);
+    qemu_fdt_setprop_cell(fdt, name, "#interrupt-cells", 1);
+    qemu_fdt_setprop_cell(fdt, name, "#address-cells", 0);
+    qemu_fdt_setprop_cell(fdt, name, "phandle", sysmsi_phandle);
+    g_free(name);
+
+    name = g_strdup("/gpio-keys");
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "compatible", "gpio-keys");
+    g_free(name);
+
+    name = g_strdup("/gpio-keys/key-power");
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "label", "Poweroff Request");
+    qemu_fdt_setprop_cell(fdt, name, "linux,code", 116);
+    qemu_fdt_setprop_cells(fdt, name, "interrupts-extended",
+                           sysmsi_phandle, RPMI_SYS_MSI_SHUTDOWN_INDEX);
+    g_free(name);
+
+    name = g_strdup("/gpio-keys/key-restart");
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "label", "Restart Request");
+    qemu_fdt_setprop_cell(fdt, name, "linux,code", 0x198);
+    qemu_fdt_setprop_cells(fdt, name, "interrupts-extended",
+                           sysmsi_phandle, RPMI_SYS_MSI_REBOOT_INDEX);
+    g_free(name);
+
+    name = g_strdup("/gpio-keys/key-suspend");
+    qemu_fdt_add_subnode(fdt, name);
+    qemu_fdt_setprop_string(fdt, name, "label", "Suspend Request");
+    qemu_fdt_setprop_cell(fdt, name, "linux,code", 205);
+    qemu_fdt_setprop_cells(fdt, name, "interrupts-extended",
+                           sysmsi_phandle, RPMI_SYS_MSI_SUSPEND_INDEX);
+    g_free(name);
 }
