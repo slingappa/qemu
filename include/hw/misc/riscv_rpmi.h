@@ -20,6 +20,7 @@
 #include "librpmi.h"
 #else
 enum rpmi_servicegroup_id {
+    RPMI_SRVGRP_SYSTEM_MSI = 0x0002,
     RPMI_SRVGRP_SYSTEM_RESET = 0x0003,
     RPMI_SRVGRP_SYSTEM_SUSPEND = 0x0004,
     RPMI_SRVGRP_HSM = 0x0005,
@@ -38,6 +39,11 @@ enum rpmi_servicegroup_id {
 #define VIRT_RPMI_A2P_REQ_SIZE (16 * RPMI_QUEUE_SLOT_SIZE)
 #define VIRT_RPMI_P2A_REQ_SIZE 0
 
+#define RPMI_SYS_MSI_SHUTDOWN_INDEX 0
+#define RPMI_SYS_MSI_REBOOT_INDEX   1
+#define RPMI_SYS_MSI_SUSPEND_INDEX  2
+#define RPMI_SYS_MSI_P2A_DB_INDEX   3
+#define RPMI_SYS_NUM_MSI            4
 #define TYPE_RISCV_RPMI "riscv-rpmi"
 OBJECT_DECLARE_SIMPLE_TYPE(RiscvRpmiState, RISCV_RPMI)
 
@@ -82,6 +88,8 @@ typedef struct RiscvRpmiConfig {
     uint32_t p2a_req_size;
     const char *platform_info;
     const RiscvRpmiMachineOps *machine_ops;
+    hwaddr sysmsi_msi_base;
+    hwaddr sysmsi_msi_size;
     hwaddr cppc_fastchan_base;
     hwaddr cppc_fastchan_size;
     uint64_t cppc_perf_request_offset;
@@ -104,6 +112,8 @@ struct RiscvRpmiState {
     uint32_t p2a_req_size;
     char *platform_info;
     const RiscvRpmiMachineOps *machine_ops;
+    hwaddr sysmsi_msi_base;
+    hwaddr sysmsi_msi_size;
     hwaddr cppc_fastchan_base;
     hwaddr cppc_fastchan_size;
     uint64_t cppc_perf_request_offset;
@@ -121,6 +131,12 @@ struct RiscvRpmiState {
     uint32_t *cppc_desired_perf;
     int64_t cppc_counter_base_ns;
     struct rpmi_service_group *cppc_group;
+    struct rpmi_service_group *sysmsi_group;
+    Notifier powerdown_notifier;
+    Notifier suspend_notifier;
+    bool powerdown_notifier_registered;
+    bool suspend_notifier_registered;
+    bool reset_notifier_registered;
     Notifier wakeup_notifier;
     bool wakeup_notifier_registered;
     QEMUTimer *wakeup_timer;

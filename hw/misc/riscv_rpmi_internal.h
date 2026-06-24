@@ -50,5 +50,10 @@ void riscv_rpmi_cppc_unrealize_fastchan(RiscvRpmiState *s);
 void riscv_rpmi_cppc_reset_fastchan(RiscvRpmiState *s);
 bool riscv_rpmi_validate_cppc_config(RiscvRpmiState *s, Error **errp);
 
+void riscv_rpmi_sysmsi_configure(RiscvRpmiState *s,
+                                  const RiscvRpmiConfig *cfg);
+bool riscv_rpmi_sysmsi_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_sysmsi_remove(RiscvRpmiState *s);
+
 
 #endif
