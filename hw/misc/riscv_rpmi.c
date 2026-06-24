@@ -226,6 +226,12 @@ static void riscv_rpmi_reset(DeviceState *dev)
 
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 {
+#ifdef CONFIG_LIBRPMI_LOGGING
+    if (s->context && s->logging_group) {
+        rpmi_context_remove_group(s->context, s->logging_group);
+    }
+    riscv_rpmi_logging_destroy(s);
+#endif
 
     if (s->context && s->mm_group) {
         rpmi_context_remove_group(s->context, s->mm_group);
@@ -385,6 +391,28 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
     struct rpmi_service_group *group;
 
     switch (service->kind) {
+#ifdef CONFIG_LIBRPMI_LOGGING
+    case RISCV_RPMI_SERVICE_LOGGING:
+        if (s->logging_group) {
+            error_setg(errp, "duplicate RPMI logging service descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_logging_create(s, &group, errp)) {
+            return false;
+        }
+
+        s->logging_group = group;
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            riscv_rpmi_logging_destroy(s);
+            error_setg(errp,
+                       "failed to add RPMI logging service group: %d", rc);
+            return false;
+        }
+
+        return true;
+#endif
     case RISCV_RPMI_SERVICE_CPPC:
         if (s->cppc_group) {
             error_setg(errp, "duplicate RPMI CPPC service descriptor");
