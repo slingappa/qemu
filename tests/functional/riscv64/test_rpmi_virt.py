@@ -87,8 +87,12 @@ class RiscvVirtRpmiGuestTest(QemuSystemTest):
         patterns = [
             'Platform HSM Device         : rpmi-hsm',
             'Platform Suspend Device     : rpmi-system-suspend',
+            'Platform CPPC Device        : rpmi-cppc',
             'Standard SBI Extensions',
             'susp',
+            'mpxy',
+            'riscv-sbi-mpxy-mbox sbi-mpxy-mbox: mailbox registered',
+            'rpmi-sysmsi rpmi-system-msi: 4 system MSIs registered',
             'tuxtest login:',
         ]
         for pattern in patterns:
@@ -140,6 +144,57 @@ class RiscvVirtRpmiGuestTest(QemuSystemTest):
             'marker=RPMI_LINUX_WAKEUP; echo ${marker}_PASS',
             'RPMI_LINUX_WAKEUP_PASS')
 
+    def _validate_sysmsi_powerdown_irq(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_SYSMSI_BEGIN; '
+            'cat /proc/interrupts | grep "Poweroff Request" && '
+            'echo RPMI_LINUX_SYSMSI_BEFORE_PASS',
+            'RPMI_LINUX_SYSMSI_BEFORE_PASS')
+        self.vm.qmp('system_powerdown')
+        time.sleep(1)
+        self._run_marker_command(
+            'cat /proc/interrupts | grep "Poweroff Request" && '
+            'echo RPMI_LINUX_SYSMSI_AFTER_PASS',
+            'RPMI_LINUX_SYSMSI_AFTER_PASS')
+
+    def _validate_cppc_sysfs(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_CPPC_BEGIN; '
+            'find /sys -iname "*cppc*" -o -iname "*cpufreq*" 2>/dev/null | '
+            'tee /tmp/rpmi-cppc.paths; '
+            'grep -q cppc /tmp/rpmi-cppc.paths && '
+            'echo RPMI_LINUX_CPPC_PASS || echo RPMI_LINUX_CPPC_FAIL',
+            'RPMI_LINUX_CPPC_PASS', 'RPMI_LINUX_CPPC_FAIL')
+
+    def _validate_clock_dt(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_CLOCK_BEGIN; '
+            'dt=/sys/firmware/devicetree/base; '
+            'if [ -e "$dt/rpmi-clk/compatible" ] || '
+            'grep -R -a -l "rpmi-clock" "$dt" 2>/dev/null | '
+            'grep -q .; then echo RPMI_LINUX_CLOCK_PASS; '
+            'else echo RPMI_LINUX_CLOCK_FAIL; fi',
+            'RPMI_LINUX_CLOCK_PASS', 'RPMI_LINUX_CLOCK_FAIL')
+
+    def _validate_mm_dt(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_MM_BEGIN; '
+            'dt=/sys/firmware/devicetree/base; '
+            'grep -R -a -l "rpmi-mpxy-mm" "$dt" 2>/dev/null | '
+            'grep -q . && echo RPMI_LINUX_MM_PASS || '
+            'echo RPMI_LINUX_MM_FAIL',
+            'RPMI_LINUX_MM_PASS', 'RPMI_LINUX_MM_FAIL')
+
+    def _validate_logging_dt(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_LOGGING_BEGIN; '
+            'dt=/sys/firmware/devicetree/base; '
+            'if grep -R -a -l "rpmi-logging" "$dt" 2>/dev/null | '
+            'grep -q .; then echo RPMI_LINUX_LOGGING_PRESENT; '
+            'else echo RPMI_LINUX_LOGGING_OPTIONAL; fi; '
+            'echo RPMI_LINUX_LOGGING_PASS',
+            'RPMI_LINUX_LOGGING_PASS')
+
     def _validate_reset_poweroff(self):
         exec_command(self, 'echo RPMI_LINUX_RESET_POWEROFF_BEGIN; poweroff -f')
         wait_for_console_pattern(self, 'RPMI_LINUX_RESET_POWEROFF_BEGIN')
@@ -150,6 +205,11 @@ class RiscvVirtRpmiGuestTest(QemuSystemTest):
         self._boot_guest(smp=4)
         self._expect_rpmi_firmware_and_linux()
         self._validate_hsm_boot_start('0-3')
+        self._validate_sysmsi_powerdown_irq()
+        self._validate_cppc_sysfs()
+        self._validate_clock_dt()
+        self._validate_mm_dt()
+        self._validate_logging_dt()
 
     def test_linux_guest_hsm_stop(self):
         self._boot_guest(smp=2)
