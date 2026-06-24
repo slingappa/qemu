@@ -312,7 +312,7 @@ static void finalize_fdt(RISCVServerRefMachineState *s)
     create_fdt_syscon(MACHINE(s)->fdt, &phandle,
                       rvserver_ref_memmap[RVSERVER_RESET_SYSCON].base,
                       rvserver_ref_memmap[RVSERVER_RESET_SYSCON].size,
-                      SYSCON_RESET, SYSCON_POWEROFF, false);
+                      SYSCON_RESET, SYSCON_POWEROFF, false, true);
 
     create_fdt_uart(MACHINE(s)->fdt, &rvserver_ref_memmap[RVSERVER_UART0],
                     RVSERVER_UART0_IRQ, AIA_TYPE_APLIC_IMSIC, false, true,

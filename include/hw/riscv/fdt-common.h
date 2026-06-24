@@ -101,7 +101,7 @@ void create_fdt_flash(void *fdt, hwaddr flashbase, hwaddr flashsize);
 void create_fdt_syscon(void *fdt, uint32_t *phandle,
                        hwaddr addr, hwaddr size,
                        uint32_t reboot, uint32_t poweroff,
-                       bool sifive_test_compat);
+                       bool sifive_test_compat, bool create_reset_nodes);
 void create_fdt_riscv_iommu_sys(void *fdt, hwaddr addr, hwaddr size,
                                 uint32_t irq_chip,
                                 uint32_t msi_phandle,

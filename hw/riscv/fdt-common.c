@@ -312,7 +312,7 @@ void create_fdt_flash(void *fdt, hwaddr flashbase, hwaddr flashsize)
 void create_fdt_syscon(void *fdt, uint32_t *phandle,
                        hwaddr addr, hwaddr size,
                        uint32_t reboot, uint32_t poweroff,
-                       bool sifive_test_compat)
+                       bool sifive_test_compat, bool create_reset_nodes)
 {
     uint32_t syscon_phandle = (*phandle)++;
     char *name;
@@ -338,6 +338,14 @@ void create_fdt_syscon(void *fdt, uint32_t *phandle,
     qemu_fdt_setprop_cell(fdt, name, "phandle", syscon_phandle);
 
     g_free(name);
+
+    /*
+     * Some platforms provide reset/shutdown through a different firmware
+     * interface, while still keeping the syscon node for MMIO test access.
+     */
+    if (!create_reset_nodes) {
+        return;
+    }
 
     name = g_strdup_printf("/reboot");
     qemu_fdt_add_subnode(fdt, name);
