@@ -303,15 +303,37 @@ static void test_rpmi_base_probe_service_groups(void)
     qtest_system_reset(qts);
     rpmi_probe_group(qts, RPMI_SRVGRP_SYSTEM_SUSPEND, true);
     qtest_system_reset(qts);
-    rpmi_probe_group(qts, RPMI_SRVGRP_CPPC, false);
+    rpmi_probe_group(qts, RPMI_SRVGRP_CPPC, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_SYSTEM_MSI, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_CLOCK, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_MANAGEMENT_MODE, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_LOGGING, true);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_base_probe_sysmsi_without_imsic(void)
+{
+    QTestState *qts;
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=none");
+    rpmi_probe_group(qts, RPMI_SRVGRP_SYSTEM_RESET, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_HSM, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_SYSTEM_SUSPEND, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_CPPC, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_CLOCK, true);
+    qtest_system_reset(qts);
+    rpmi_probe_group(qts, RPMI_SRVGRP_MANAGEMENT_MODE, true);
     qtest_system_reset(qts);
     rpmi_probe_group(qts, RPMI_SRVGRP_SYSTEM_MSI, false);
-    qtest_system_reset(qts);
-    rpmi_probe_group(qts, RPMI_SRVGRP_CLOCK, false);
-    qtest_system_reset(qts);
-    rpmi_probe_group(qts, RPMI_SRVGRP_MANAGEMENT_MODE, false);
-    qtest_system_reset(qts);
-    rpmi_probe_group(qts, RPMI_SRVGRP_LOGGING, false);
 
     qtest_quit(qts);
 }
@@ -637,6 +659,883 @@ static void test_rpmi_syssusp_attrs_and_suspend(void)
     qtest_quit(qts);
 }
 
+static void test_rpmi_cppc_hart_list(void)
+{
+    QTestState *qts;
+    uint32_t start_index = 0;
+
+    qts = qtest_init("-machine virt,rpmi=on -smp 4");
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_GET_HART_LIST,
+                      RPMI_MSG_NORMAL_REQUEST, &start_index, 1);
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_GET_HART_LIST,
+                    7 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 4);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 4), ==, 1);
+    g_assert_cmphex(rpmi_response_word(qts, 5), ==, 2);
+    g_assert_cmphex(rpmi_response_word(qts, 6), ==, 3);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_read_nominal_perf(void)
+{
+    QTestState *qts;
+    uint32_t request[] = { 0, RPMI_CPPC_NOMINAL_PERF };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    g_assert_cmphex(qtest_readl(qts, RPMI_CPPC_FASTCHAN_BASE), ==,
+                    VIRT_RPMI_CPPC_NOMINAL_PERF);
+
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, request, ARRAY_SIZE(request));
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==,
+                    VIRT_RPMI_CPPC_NOMINAL_PERF);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 0);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_invalid_hart(void)
+{
+    QTestState *qts;
+    uint32_t request[] = { 0xff, RPMI_CPPC_NOMINAL_PERF };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, request, ARRAY_SIZE(request));
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==,
+                    RPMI_ERR_INVALID_PARAM);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_fast_channel_region(void)
+{
+    QTestState *qts;
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC,
+                      RPMI_CPPC_SRV_GET_FAST_CHANNEL_REGION,
+                      RPMI_MSG_NORMAL_REQUEST, NULL, 0);
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC,
+                    RPMI_CPPC_SRV_GET_FAST_CHANNEL_REGION,
+                    12 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==,
+                    RPMI_CPPC_FASTCHAN_BASE);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 4), ==,
+                    RPMI_CPPC_FASTCHAN_SIZE);
+    g_assert_cmphex(rpmi_response_word(qts, 5), ==, 0);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_fast_channel_offset(void)
+{
+    QTestState *qts;
+    uint32_t hart_id = 1;
+
+    qts = qtest_init("-machine virt,rpmi=on -smp 2");
+    g_assert_cmphex(qtest_readl(qts, RPMI_CPPC_FASTCHAN_BASE + 8), ==,
+                    VIRT_RPMI_CPPC_NOMINAL_PERF);
+
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC,
+                      RPMI_CPPC_SRV_GET_FAST_CHANNEL_OFFSET,
+                      RPMI_MSG_NORMAL_REQUEST, &hart_id, 1);
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC,
+                    RPMI_CPPC_SRV_GET_FAST_CHANNEL_OFFSET,
+                    5 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 8);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==,
+                    RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET + 8);
+    g_assert_cmphex(rpmi_response_word(qts, 4), ==, 0);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_counters_and_depth(void)
+{
+    QTestState *qts;
+    uint32_t probe_reference[] = { 0, RPMI_CPPC_REFERENCE_PERF_COUNTER };
+    uint32_t probe_delivered[] = { 0, RPMI_CPPC_DELIVERED_PERF_COUNTER };
+    uint32_t probe_wrap[] = { 0, RPMI_CPPC_COUNTER_WRAPAROUND_TIME };
+    uint32_t read_reference[] = { 0, RPMI_CPPC_REFERENCE_PERF_COUNTER };
+    uint32_t read_delivered[] = { 0, RPMI_CPPC_DELIVERED_PERF_COUNTER };
+    uint64_t reference_before;
+    uint64_t reference_after;
+    uint64_t delivered_before;
+    uint64_t delivered_after;
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                      RPMI_MSG_NORMAL_REQUEST, probe_reference,
+                      ARRAY_SIZE(probe_reference));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                    2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, RPMI_CPPC_REG_LEN_64);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                      RPMI_MSG_NORMAL_REQUEST, probe_delivered,
+                      ARRAY_SIZE(probe_delivered));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                    2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, RPMI_CPPC_REG_LEN_64);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                      RPMI_MSG_NORMAL_REQUEST, probe_wrap,
+                      ARRAY_SIZE(probe_wrap));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_PROBE_REG,
+                    2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, RPMI_ERR_NOTSUPP);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, read_reference,
+                      ARRAY_SIZE(read_reference));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    reference_before = rpmi_response_word(qts, 1) |
+                       ((uint64_t)rpmi_response_word(qts, 2) << 32);
+
+    qtest_clock_step(qts, 1000000000LL);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, read_reference,
+                      ARRAY_SIZE(read_reference));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    reference_after = rpmi_response_word(qts, 1) |
+                      ((uint64_t)rpmi_response_word(qts, 2) << 32);
+    g_assert_cmpuint(reference_after, >, reference_before);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, read_delivered,
+                      ARRAY_SIZE(read_delivered));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    delivered_before = rpmi_response_word(qts, 1) |
+                       ((uint64_t)rpmi_response_word(qts, 2) << 32);
+
+    qtest_clock_step(qts, 1000000000LL);
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                      RPMI_MSG_NORMAL_REQUEST, read_delivered,
+                      ARRAY_SIZE(read_delivered));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_READ_REG,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    delivered_after = rpmi_response_word(qts, 1) |
+                      ((uint64_t)rpmi_response_word(qts, 2) << 32);
+    g_assert_cmpuint(delivered_after, >, delivered_before);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_fast_channel_perf_update(void)
+{
+    QTestState *qts;
+    uint64_t nominal_freq = 3000000000ULL;
+    uint64_t highest_freq = 3200000000ULL;
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    qtest_writel(qts, RPMI_CPPC_FASTCHAN_BASE, 33);
+    qtest_writel(qts, RPMI_DOORBELL_BASE, 1);
+    g_assert_cmphex(qtest_readq(qts, RPMI_CPPC_FASTCHAN_BASE +
+                                RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET), ==,
+                    nominal_freq);
+    g_test_message(
+        "RPMI_CPPC_FASTCHAN base=0x%016" PRIx64
+        " request_offset=0x0 value=%u feedback_offset=0x%x feedback=%" PRIu64,
+        (uint64_t)RPMI_CPPC_FASTCHAN_BASE, 33,
+        RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET, nominal_freq);
+
+    qtest_writel(qts, RPMI_CPPC_FASTCHAN_BASE, 32);
+    qtest_writel(qts, RPMI_DOORBELL_BASE, 1);
+    g_assert_cmphex(qtest_readq(qts, RPMI_CPPC_FASTCHAN_BASE +
+                                RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET), ==,
+                    highest_freq);
+    g_test_message(
+        "RPMI_CPPC_FASTCHAN base=0x%016" PRIx64
+        " request_offset=0x0 value=%u feedback_offset=0x%x feedback=%" PRIu64,
+        (uint64_t)RPMI_CPPC_FASTCHAN_BASE, 32,
+        RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET, highest_freq);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_cppc_write_reg_denied(void)
+{
+    QTestState *qts;
+    uint32_t write_desired_perf[] = { 0, RPMI_CPPC_DESIRED_PERF, 31, 0 };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_WRITE_REG,
+                      RPMI_MSG_NORMAL_REQUEST, write_desired_perf,
+                      ARRAY_SIZE(write_desired_perf));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CPPC, RPMI_CPPC_SRV_WRITE_REG,
+                    sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, RPMI_ERR_DENIED);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_attrs(void)
+{
+    QTestState *qts;
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_GET_ATTRIBUTES,
+                      RPMI_MSG_NORMAL_REQUEST, NULL, 0);
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_GET_ATTRIBUTES, 4 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==,
+                    RPMI_SYS_NUM_MSI);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_rejects_bad_addr(void)
+{
+    QTestState *qts;
+    uint32_t request[] = { RPMI_SYS_MSI_SHUTDOWN_INDEX, 0, 0, 0x1234 };
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_SET_MSI_TARGET,
+                      RPMI_MSG_NORMAL_REQUEST, request, ARRAY_SIZE(request));
+
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_SET_MSI_TARGET, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==,
+                    RPMI_ERR_INVALID_ADDR);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_msi_attrs_and_state(void)
+{
+    QTestState *qts;
+    uint32_t msi_index = RPMI_SYS_MSI_SHUTDOWN_INDEX;
+    uint32_t set_state[] = {
+        RPMI_SYS_MSI_SHUTDOWN_INDEX, RPMI_SYSMSI_MSI_STATE_ENABLE
+    };
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_GET_MSI_ATTRIBUTES,
+                      RPMI_MSG_NORMAL_REQUEST, &msi_index, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_GET_MSI_ATTRIBUTES,
+                    7 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0);
+    char name[9];
+    for (size_t i = 0; i < sizeof(name) - 1; i++) {
+        name[i] = qtest_readb(qts, RPMI_P2A_ACK_SLOT0 + 20 + i);
+    }
+    name[sizeof(name) - 1] = '\0';
+    g_assert_cmpstr(name, ==, "shutdown");
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_SET_MSI_STATE,
+                      RPMI_MSG_NORMAL_REQUEST, set_state,
+                      ARRAY_SIZE(set_state));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_SET_MSI_STATE, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_GET_MSI_STATE,
+                      RPMI_MSG_NORMAL_REQUEST, &msi_index, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_GET_MSI_STATE, 2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==,
+                    RPMI_SYSMSI_MSI_STATE_ENABLE);
+
+    qtest_quit(qts);
+}
+
+static void rpmi_sysmsi_set_state(QTestState *qts, uint32_t msi_index,
+                                  uint32_t state)
+{
+    uint32_t set_state[] = { msi_index, state };
+
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_SET_MSI_STATE,
+                      RPMI_MSG_NORMAL_REQUEST, set_state,
+                      ARRAY_SIZE(set_state));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_SET_MSI_STATE, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+}
+
+static void rpmi_sysmsi_expect_state(QTestState *qts, uint32_t msi_index,
+                                     uint32_t state)
+{
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_GET_MSI_STATE,
+                      RPMI_MSG_NORMAL_REQUEST, &msi_index, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_GET_MSI_STATE, 2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, state);
+}
+
+static void test_rpmi_sysmsi_powerdown_injects_pending(void)
+{
+    QTestState *qts;
+    uint32_t msi_index = RPMI_SYS_MSI_SHUTDOWN_INDEX;
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_sysmsi_set_state(qts, msi_index, RPMI_SYSMSI_MSI_STATE_ENABLE);
+
+    qtest_qmp_assert_success(qts, "{ 'execute': 'system_powerdown' }");
+    qtest_qmp_eventwait(qts, "POWERDOWN");
+
+    rpmi_sysmsi_expect_state(qts, msi_index,
+                             RPMI_SYSMSI_MSI_STATE_ENABLE |
+                             RPMI_SYSMSI_MSI_STATE_PENDING);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_reset_injects_pending(void)
+{
+    QTestState *qts;
+    uint32_t msi_index = RPMI_SYS_MSI_REBOOT_INDEX;
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_sysmsi_set_state(qts, msi_index, RPMI_SYSMSI_MSI_STATE_ENABLE);
+    qtest_system_reset(qts);
+    rpmi_sysmsi_expect_state(qts, msi_index,
+                             RPMI_SYSMSI_MSI_STATE_ENABLE |
+                             RPMI_SYSMSI_MSI_STATE_PENDING);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_suspend_injects_pending(void)
+{
+    QTestState *qts;
+    uint32_t msi_index = RPMI_SYS_MSI_SUSPEND_INDEX;
+    uint32_t suspend_request[] = { 0, 0, 0x80000000, 0 };
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic -smp 1");
+    rpmi_sysmsi_set_state(qts, msi_index, RPMI_SYSMSI_MSI_STATE_ENABLE);
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_SUSPEND,
+                      RPMI_SYSSUSP_SRV_SYSTEM_SUSPEND,
+                      RPMI_MSG_NORMAL_REQUEST, suspend_request,
+                      ARRAY_SIZE(suspend_request));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_SUSPEND,
+                    RPMI_SYSSUSP_SRV_SYSTEM_SUSPEND, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    qtest_qmp_eventwait(qts, "SUSPEND");
+    qtest_qmp_assert_success(qts, "{ 'execute': 'system_wakeup' }");
+    qtest_qmp_eventwait(qts, "WAKEUP");
+    rpmi_sysmsi_expect_state(qts, msi_index,
+                             RPMI_SYSMSI_MSI_STATE_ENABLE |
+                             RPMI_SYSMSI_MSI_STATE_PENDING);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_sysmsi_target_roundtrip(void)
+{
+    QTestState *qts;
+    uint32_t set_target[] = {
+        RPMI_SYS_MSI_SHUTDOWN_INDEX, RPMI_IMSIC_S_BASE, 0, 0x1234
+    };
+    uint32_t get_target[] = { RPMI_SYS_MSI_SHUTDOWN_INDEX };
+
+    qts = qtest_init("-machine virt,rpmi=on,aia=aplic-imsic");
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_SET_MSI_TARGET,
+                      RPMI_MSG_NORMAL_REQUEST, set_target,
+                      ARRAY_SIZE(set_target));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_SET_MSI_TARGET, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                      RPMI_SYSMSI_SRV_GET_MSI_TARGET,
+                      RPMI_MSG_NORMAL_REQUEST, get_target,
+                      ARRAY_SIZE(get_target));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_SYSTEM_MSI,
+                    RPMI_SYSMSI_SRV_GET_MSI_TARGET, 4 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==,
+                    RPMI_IMSIC_S_BASE);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 0x1234);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_clock_rates(void)
+{
+    QTestState *qts;
+    uint32_t rate_query[] = { 0, 0 };
+    uint32_t clock_id = 0;
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK,
+                      RPMI_CLK_SRV_GET_SUPPORTED_RATES,
+                      RPMI_MSG_NORMAL_REQUEST, rate_query,
+                      ARRAY_SIZE(rate_query));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK,
+                    RPMI_CLK_SRV_GET_SUPPORTED_RATES,
+                    10 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 3);
+    g_assert_cmphex(rpmi_response_word(qts, 4), ==, 0x22222222);
+    g_assert_cmphex(rpmi_response_word(qts, 5), ==, 0x11111111);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_RATE,
+                      RPMI_MSG_NORMAL_REQUEST, &clock_id, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_RATE,
+                    3 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0x22222222);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 0x11111111);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_clock_commands(void)
+{
+    QTestState *qts;
+    uint32_t clock_id = 0;
+    uint32_t clock_config[] = { 2, 0 };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_NUM_CLOCKS,
+                      RPMI_MSG_NORMAL_REQUEST, NULL, 0);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_NUM_CLOCKS,
+                    2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, VIRT_RPMI_CLOCK_COUNT);
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_ATTRIBUTES,
+                      RPMI_MSG_NORMAL_REQUEST, &clock_id, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_ATTRIBUTES,
+                    8 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 1);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, 3);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 100);
+    char name[7];
+    for (size_t i = 0; i < sizeof(name) - 1; i++) {
+        name[i] = qtest_readb(qts, RPMI_P2A_ACK_SLOT0 + 24 + i);
+    }
+    name[sizeof(name) - 1] = '\0';
+    g_assert_cmpstr(name, ==, "clock0");
+
+    qtest_system_reset(qts);
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_CONFIG,
+                      RPMI_MSG_NORMAL_REQUEST, clock_config,
+                      ARRAY_SIZE(clock_config));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_CONFIG,
+                    sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_CONFIG,
+                      RPMI_MSG_NORMAL_REQUEST, clock_config, 1);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_GET_CONFIG,
+                    2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, 0);
+
+    uint32_t bad_rate[] = { 0, 0, 0, 0 };
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_RATE,
+                      RPMI_MSG_NORMAL_REQUEST, bad_rate,
+                      ARRAY_SIZE(bad_rate));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_RATE,
+                    sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==,
+                    RPMI_ERR_INVALID_PARAM);
+
+    uint32_t invalid_clock_config[] = { VIRT_RPMI_CLOCK_COUNT, 1 };
+    rpmi_send_request(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_CONFIG,
+                      RPMI_MSG_NORMAL_REQUEST, invalid_clock_config,
+                      ARRAY_SIZE(invalid_clock_config));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_CLOCK, RPMI_CLK_SRV_SET_CONFIG,
+                    sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==,
+                    RPMI_ERR_INVALID_PARAM);
+
+    qtest_quit(qts);
+}
+
+typedef struct RpmiTestGuid {
+    uint32_t data1;
+    uint16_t data2;
+    uint16_t data3;
+    uint8_t data4[8];
+} RpmiTestGuid;
+
+static const RpmiTestGuid rpmi_mm_var_protocol_guid = {
+    0xed32d533, 0x99e6, 0x4209,
+    { 0x9c, 0xc0, 0x2d, 0x72, 0xcd, 0xd9, 0x98, 0xa7 }
+};
+
+static const RpmiTestGuid rpmi_mm_test_vendor_guid = {
+    0x12345678, 0x9abc, 0xdef0,
+    { 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0 }
+};
+
+static void rpmi_mm_write_guid(QTestState *qts, uint64_t addr,
+                                const RpmiTestGuid *guid)
+{
+    qtest_writel(qts, addr, guid->data1);
+    qtest_writew(qts, addr + 4, guid->data2);
+    qtest_writew(qts, addr + 6, guid->data3);
+    for (size_t i = 0; i < sizeof(guid->data4); i++) {
+        qtest_writeb(qts, addr + 8 + i, guid->data4[i]);
+    }
+}
+
+static void rpmi_mm_expect_guid(QTestState *qts, uint64_t addr,
+                                const RpmiTestGuid *guid)
+{
+    g_assert_cmphex(qtest_readl(qts, addr), ==, guid->data1);
+    g_assert_cmphex(qtest_readw(qts, addr + 4), ==, guid->data2);
+    g_assert_cmphex(qtest_readw(qts, addr + 6), ==, guid->data3);
+    for (size_t i = 0; i < sizeof(guid->data4); i++) {
+        g_assert_cmphex(qtest_readb(qts, addr + 8 + i), ==,
+                        guid->data4[i]);
+    }
+}
+
+static uint64_t rpmi_mm_write_name(QTestState *qts, uint64_t addr,
+                                   const char *name)
+{
+    size_t len = strlen(name);
+
+    for (size_t i = 0; i < len; i++) {
+        qtest_writew(qts, addr + i * sizeof(uint16_t), name[i]);
+    }
+    qtest_writew(qts, addr + len * sizeof(uint16_t), 0);
+
+    return (len + 1) * sizeof(uint16_t);
+}
+
+static void rpmi_mm_expect_name(QTestState *qts, uint64_t addr,
+                                const char *name)
+{
+    size_t len = strlen(name);
+
+    for (size_t i = 0; i < len; i++) {
+        g_assert_cmphex(qtest_readw(qts, addr + i * sizeof(uint16_t)), ==,
+                        name[i]);
+    }
+    g_assert_cmphex(qtest_readw(qts, addr + len * sizeof(uint16_t)), ==, 0);
+}
+
+static uint64_t rpmi_mm_write_access(QTestState *qts, uint64_t function,
+                                     const char *name, uint64_t datasize,
+                                     uint32_t attr, const uint8_t *value)
+{
+    uint64_t payload_base = RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE +
+                            EFI_VAR_COMM_HEADER_SIZE;
+    uint64_t name_base = payload_base + EFI_VAR_ACCESS_NAME_OFFSET;
+    uint64_t namesize;
+    uint64_t msg_len;
+
+    qtest_memset(qts, RPMI_MM_INPUT_BASE, 0, RPMI_MM_BUFFER_SIZE);
+    qtest_memset(qts, RPMI_MM_OUTPUT_BASE, 0, RPMI_MM_BUFFER_SIZE);
+
+    rpmi_mm_write_guid(qts, RPMI_MM_INPUT_BASE, &rpmi_mm_var_protocol_guid);
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + 16, 0);
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE,
+                 function);
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE + 8, 0);
+    rpmi_mm_write_guid(qts, payload_base, &rpmi_mm_test_vendor_guid);
+    qtest_writeq(qts, payload_base + 16, datasize);
+    namesize = rpmi_mm_write_name(qts, name_base, name);
+    qtest_writeq(qts, payload_base + 24, namesize);
+    qtest_writel(qts, payload_base + 32, attr);
+    if (value) {
+        qtest_memwrite(qts, name_base + namesize, value, datasize);
+    }
+
+    msg_len = EFI_VAR_COMM_HEADER_SIZE + EFI_VAR_ACCESS_NAME_OFFSET +
+              namesize + datasize;
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + 16, msg_len);
+
+    return MM_EFI_COMM_HEADER_SIZE + msg_len;
+}
+
+static uint64_t rpmi_mm_write_get_next(QTestState *qts, const char *name,
+                                       uint64_t namesize)
+{
+    uint64_t payload_base = RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE +
+                            EFI_VAR_COMM_HEADER_SIZE;
+    uint64_t name_base = payload_base + EFI_VAR_NEXT_NAME_OFFSET;
+    uint64_t msg_len;
+
+    qtest_memset(qts, RPMI_MM_INPUT_BASE, 0, RPMI_MM_BUFFER_SIZE);
+    qtest_memset(qts, RPMI_MM_OUTPUT_BASE, 0, RPMI_MM_BUFFER_SIZE);
+
+    rpmi_mm_write_guid(qts, RPMI_MM_INPUT_BASE, &rpmi_mm_var_protocol_guid);
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE,
+                 EFI_VAR_FN_GET_NEXT_VARIABLE_NAME);
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + MM_EFI_COMM_HEADER_SIZE + 8, 0);
+    if (name[0]) {
+        rpmi_mm_write_guid(qts, payload_base, &rpmi_mm_test_vendor_guid);
+        rpmi_mm_write_name(qts, name_base, name);
+    }
+    qtest_writeq(qts, payload_base + 16, namesize);
+
+    msg_len = EFI_VAR_COMM_HEADER_SIZE + EFI_VAR_NEXT_NAME_OFFSET + namesize;
+    qtest_writeq(qts, RPMI_MM_INPUT_BASE + 16, msg_len);
+
+    return MM_EFI_COMM_HEADER_SIZE + msg_len;
+}
+
+static void rpmi_mm_send_communicate(QTestState *qts, uint64_t input_len)
+{
+    uint32_t request[] = {
+        RPMI_MM_INPUT_OFFSET, input_len, RPMI_MM_OUTPUT_OFFSET,
+        RPMI_MM_BUFFER_SIZE,
+    };
+
+    rpmi_send_request(qts, RPMI_SRVGRP_MANAGEMENT_MODE,
+                      RPMI_MM_SRV_COMMUNICATE, RPMI_MSG_NORMAL_REQUEST,
+                      request, ARRAY_SIZE(request));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_MANAGEMENT_MODE,
+                    RPMI_MM_SRV_COMMUNICATE, 2 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_test_message(
+        "RPMI_MM_COMMUNICATE input=0x%016" PRIx64 " input_len=%" PRIu64
+        " output=0x%016" PRIx64 " output_len=0x%x efi_status=0x%016" PRIx64,
+        (uint64_t)RPMI_MM_INPUT_BASE, input_len,
+        (uint64_t)RPMI_MM_OUTPUT_BASE, RPMI_MM_BUFFER_SIZE,
+        qtest_readq(qts, RPMI_MM_OUTPUT_BASE + MM_EFI_COMM_HEADER_SIZE + 8));
+}
+
+static uint64_t rpmi_mm_return_status(QTestState *qts)
+{
+    return qtest_readq(qts, RPMI_MM_OUTPUT_BASE + MM_EFI_COMM_HEADER_SIZE + 8);
+}
+
+static void test_rpmi_mm_variable_roundtrip(void)
+{
+    QTestState *qts;
+    static const uint8_t value[] = { 0xde, 0xad, 0xbe, 0xef };
+    uint32_t attr = EFI_VARIABLE_NON_VOLATILE |
+                    EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                    EFI_VARIABLE_RUNTIME_ACCESS;
+    uint64_t input_len;
+    uint64_t payload_base = RPMI_MM_OUTPUT_BASE + MM_EFI_COMM_HEADER_SIZE +
+                            EFI_VAR_COMM_HEADER_SIZE;
+    uint64_t name_base = payload_base + EFI_VAR_ACCESS_NAME_OFFSET;
+    uint64_t namesize = (strlen("TestVar") + 1) * sizeof(uint16_t);
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_SET_VARIABLE,
+                                     "TestVar", sizeof(value), attr, value);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+
+    qtest_system_reset(qts);
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_GET_VARIABLE,
+                                     "TestVar", 0, 0, NULL);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_BUFFER_TOO_SMALL);
+    g_assert_cmphex(qtest_readq(qts, payload_base + 16), ==, sizeof(value));
+    g_assert_cmphex(qtest_readl(qts, payload_base + 32), ==, attr);
+
+    qtest_system_reset(qts);
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_GET_VARIABLE,
+                                     "TestVar", sizeof(value), 0, NULL);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+    g_assert_cmphex(qtest_readq(qts, payload_base + 16), ==, sizeof(value));
+    g_assert_cmphex(qtest_readl(qts, payload_base + 32), ==, attr);
+    for (size_t i = 0; i < sizeof(value); i++) {
+        g_assert_cmphex(qtest_readb(qts, name_base + namesize + i), ==,
+                        value[i]);
+    }
+
+    input_len = rpmi_mm_write_get_next(qts, "", 64);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+    payload_base = RPMI_MM_OUTPUT_BASE + MM_EFI_COMM_HEADER_SIZE +
+                   EFI_VAR_COMM_HEADER_SIZE;
+    name_base = payload_base + EFI_VAR_NEXT_NAME_OFFSET;
+    rpmi_mm_expect_guid(qts, payload_base, &rpmi_mm_test_vendor_guid);
+    g_assert_cmphex(qtest_readq(qts, payload_base + 16), ==, namesize);
+    rpmi_mm_expect_name(qts, name_base, "TestVar");
+
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_SET_VARIABLE,
+                                     "TestVar", 0, attr, NULL);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+
+    qtest_system_reset(qts);
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_GET_VARIABLE,
+                                     "TestVar", sizeof(value), 0, NULL);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_NOT_FOUND);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_mm_process_restart_persistence(void)
+{
+    QTestState *qts;
+    g_autofree char *tmpdir = g_dir_make_tmp("qemu-rpmi-mm-XXXXXX", NULL);
+    g_autofree char *store = g_build_filename(tmpdir, "vars.store", NULL);
+    static const uint8_t value[] = { 0xca, 0xfe, 0xba, 0xbe };
+    uint32_t attr = EFI_VARIABLE_NON_VOLATILE |
+                    EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                    EFI_VARIABLE_RUNTIME_ACCESS;
+    uint64_t input_len;
+    uint64_t payload_base = RPMI_MM_OUTPUT_BASE + MM_EFI_COMM_HEADER_SIZE +
+                            EFI_VAR_COMM_HEADER_SIZE;
+    uint64_t name_base = payload_base + EFI_VAR_ACCESS_NAME_OFFSET;
+    uint64_t namesize = (strlen("PersistVar") + 1) * sizeof(uint16_t);
+
+    g_assert_nonnull(tmpdir);
+
+    qts = qtest_initf("-machine virt,rpmi=on,rpmi-mm-store=%s", store);
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_SET_VARIABLE,
+                                     "PersistVar", sizeof(value), attr,
+                                     value);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+    qtest_quit(qts);
+
+    qts = qtest_initf("-machine virt,rpmi=on,rpmi-mm-store=%s", store);
+    input_len = rpmi_mm_write_access(qts, EFI_VAR_FN_GET_VARIABLE,
+                                     "PersistVar", sizeof(value), 0, NULL);
+    rpmi_mm_send_communicate(qts, input_len);
+    g_assert_cmphex(rpmi_mm_return_status(qts), ==, EFI_SUCCESS);
+    g_assert_cmphex(qtest_readq(qts, payload_base + 16), ==, sizeof(value));
+    g_assert_cmphex(qtest_readl(qts, payload_base + 32), ==, attr);
+    for (size_t i = 0; i < sizeof(value); i++) {
+        g_assert_cmphex(qtest_readb(qts, name_base + namesize + i), ==,
+                        value[i]);
+    }
+    qtest_quit(qts);
+
+    g_assert_cmpint(g_remove(store), ==, 0);
+    g_assert_cmpint(g_rmdir(tmpdir), ==, 0);
+}
+
+static void test_rpmi_mm_rejects_bad_range(void)
+{
+    QTestState *qts;
+    uint32_t request[] = {
+        VIRT_RPMI_SHMEM_SIZE - 1, MM_EFI_COMM_HEADER_SIZE,
+        RPMI_MM_OUTPUT_OFFSET, RPMI_MM_BUFFER_SIZE,
+    };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_MANAGEMENT_MODE,
+                      RPMI_MM_SRV_COMMUNICATE, RPMI_MSG_NORMAL_REQUEST,
+                      request, ARRAY_SIZE(request));
+    g_assert_cmphex(qtest_readl(qts, RPMI_P2A_ACK_HEAD), ==,
+                    qtest_readl(qts, RPMI_P2A_ACK_TAIL));
+
+    qtest_quit(qts);
+}
+
+
+static void test_rpmi_mm_rejects_bad_store(void)
+{
+    g_autofree char *store = NULL;
+    g_autofree char *quoted_store = NULL;
+    g_autofree char *args = NULL;
+    char tmpdir[] = "/tmp/rpmi-mm-store-bad-XXXXXX";
+
+    g_assert_nonnull(g_mkdtemp(tmpdir));
+    store = g_build_filename(tmpdir, "store.ini", NULL);
+    g_assert_true(g_file_set_contents(store,
+                                      "[rpmi-mm]\n"
+                                      "version=1\n"
+                                      "count=101\n",
+                                      -1, NULL));
+
+    quoted_store = g_shell_quote(store);
+    args = g_strdup_printf("-machine virt,rpmi=on,rpmi-mm-store=%s "
+                           "-display none -S", quoted_store);
+    rpmi_expect_qemu_failure(args, "RPMI MM store has too many variables");
+
+    g_assert_cmpint(g_remove(store), ==, 0);
+    g_assert_cmpint(g_rmdir(tmpdir), ==, 0);
+}
+
+static void test_rpmi_logging_set_config(void)
+{
+    QTestState *qts;
+    uint32_t config[] = { 1, 0x11223344, 0x55667788, 0x99aabbcc };
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_LOGGING,
+                      RPMI_LOGGING_SRV_SET_CONFIG,
+                      RPMI_MSG_NORMAL_REQUEST, config,
+                      ARRAY_SIZE(config));
+    rpmi_expect_ack(qts, RPMI_SRVGRP_LOGGING,
+                    RPMI_LOGGING_SRV_SET_CONFIG, sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+
+    qtest_quit(qts);
+}
+
+static void test_rpmi_mm_attrs(void)
+{
+    QTestState *qts;
+
+    qts = qtest_init("-machine virt,rpmi=on");
+    rpmi_send_request(qts, RPMI_SRVGRP_MANAGEMENT_MODE,
+                      RPMI_MM_SRV_GET_ATTRIBUTES,
+                      RPMI_MSG_NORMAL_REQUEST, NULL, 0);
+    rpmi_expect_ack(qts, RPMI_SRVGRP_MANAGEMENT_MODE,
+                    RPMI_MM_SRV_GET_ATTRIBUTES, 5 * sizeof(uint32_t));
+    g_assert_cmphex(rpmi_response_word(qts, 0), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 1), ==, VIRT_RPMI_MM_VERSION);
+    g_assert_cmphex(rpmi_response_word(qts, 2), ==, RPMI_SHMEM_BASE);
+    g_assert_cmphex(rpmi_response_word(qts, 3), ==, 0);
+    g_assert_cmphex(rpmi_response_word(qts, 4), ==, VIRT_RPMI_SHMEM_SIZE);
+
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -650,6 +1549,8 @@ int main(int argc, char **argv)
                        test_rpmi_base_platform_info);
         qtest_add_func("/riscv/rpmi/base/probe-service-groups",
                        test_rpmi_base_probe_service_groups);
+        qtest_add_func("/riscv/rpmi/base/probe-sysmsi-without-imsic",
+                       test_rpmi_base_probe_sysmsi_without_imsic);
         qtest_add_func("/riscv/rpmi/sysreset/attrs",
                        test_rpmi_sysreset_attrs);
         qtest_add_func("/riscv/rpmi/sysreset/shutdown",
@@ -678,6 +1579,52 @@ int main(int argc, char **argv)
                        test_rpmi_hsm_hart_control);
         qtest_add_func("/riscv/rpmi/syssusp/attrs-and-suspend",
                        test_rpmi_syssusp_attrs_and_suspend);
+        qtest_add_func("/riscv/rpmi/cppc/hart-list",
+                       test_rpmi_cppc_hart_list);
+        qtest_add_func("/riscv/rpmi/cppc/read-nominal-perf",
+                       test_rpmi_cppc_read_nominal_perf);
+        qtest_add_func("/riscv/rpmi/cppc/invalid-hart",
+                       test_rpmi_cppc_invalid_hart);
+        qtest_add_func("/riscv/rpmi/cppc/fast-channel-region",
+                       test_rpmi_cppc_fast_channel_region);
+        qtest_add_func("/riscv/rpmi/cppc/fast-channel-offset",
+                       test_rpmi_cppc_fast_channel_offset);
+        qtest_add_func("/riscv/rpmi/cppc/counters-and-depth",
+                       test_rpmi_cppc_counters_and_depth);
+        qtest_add_func("/riscv/rpmi/cppc/fast-channel-perf-update",
+                       test_rpmi_cppc_fast_channel_perf_update);
+        qtest_add_func("/riscv/rpmi/cppc/write-reg-denied",
+                       test_rpmi_cppc_write_reg_denied);
+        qtest_add_func("/riscv/rpmi/sysmsi/attrs",
+                       test_rpmi_sysmsi_attrs);
+        qtest_add_func("/riscv/rpmi/sysmsi/rejects-bad-addr",
+                       test_rpmi_sysmsi_rejects_bad_addr);
+        qtest_add_func("/riscv/rpmi/sysmsi/msi-attrs-and-state",
+                       test_rpmi_sysmsi_msi_attrs_and_state);
+        qtest_add_func("/riscv/rpmi/sysmsi/powerdown-injects-pending",
+                       test_rpmi_sysmsi_powerdown_injects_pending);
+        qtest_add_func("/riscv/rpmi/sysmsi/reset-injects-pending",
+                       test_rpmi_sysmsi_reset_injects_pending);
+        qtest_add_func("/riscv/rpmi/sysmsi/suspend-injects-pending",
+                       test_rpmi_sysmsi_suspend_injects_pending);
+        qtest_add_func("/riscv/rpmi/sysmsi/target-roundtrip",
+                       test_rpmi_sysmsi_target_roundtrip);
+        qtest_add_func("/riscv/rpmi/clock/commands",
+                       test_rpmi_clock_commands);
+        qtest_add_func("/riscv/rpmi/clock/rates",
+                       test_rpmi_clock_rates);
+        qtest_add_func("/riscv/rpmi/mm/attrs",
+                       test_rpmi_mm_attrs);
+        qtest_add_func("/riscv/rpmi/mm/variable-roundtrip",
+                       test_rpmi_mm_variable_roundtrip);
+        qtest_add_func("/riscv/rpmi/mm/process-restart-persistence",
+                       test_rpmi_mm_process_restart_persistence);
+        qtest_add_func("/riscv/rpmi/mm/rejects-bad-range",
+                       test_rpmi_mm_rejects_bad_range);
+        qtest_add_func("/riscv/rpmi/mm/rejects-bad-store",
+                       test_rpmi_mm_rejects_bad_store);
+        qtest_add_func("/riscv/rpmi/logging/set-config",
+                       test_rpmi_logging_set_config);
     }
 
     return g_test_run();
