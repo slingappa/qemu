@@ -239,6 +239,10 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
     }
     riscv_rpmi_cppc_destroy(s);
 
+    if (s->context && s->sysmsi_group) {
+        rpmi_context_remove_group(s->context, s->sysmsi_group);
+    }
+    riscv_rpmi_sysmsi_destroy(s);
 
     if (s->context && s->hsm_group) {
         rpmi_context_remove_group(s->context, s->hsm_group);
@@ -391,6 +395,26 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
             return false;
         }
 
+        return true;
+    case RISCV_RPMI_SERVICE_SYSMSI:
+        if (s->sysmsi_group) {
+            error_setg(errp, "duplicate RPMI sysmsi service descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_sysmsi_create(s, &group, errp)) {
+            return false;
+        }
+
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            riscv_rpmi_sysmsi_destroy_group(group);
+            error_setg(errp, "failed to add RPMI sysmsi service group: %d",
+                       rc);
+            return false;
+        }
+
+        riscv_rpmi_sysmsi_attach(s, group);
         return true;
     case RISCV_RPMI_SERVICE_HSM:
         if (s->hsm_group) {

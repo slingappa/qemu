@@ -171,6 +171,7 @@ system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
 system_ss.add(when: 'CONFIG_RISCV_RPMI', if_true: [files(
   'riscv_rpmi.c',
   'riscv_rpmi_cppc.c',
+  'riscv_rpmi_sysmsi.c',
   'riscv_rpmi_hsm.c',
   'riscv_rpmi_syssusp.c',
   'riscv_rpmi_sysreset.c',
