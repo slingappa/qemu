@@ -45,10 +45,13 @@
 #include "hw/intc/riscv_aplic.h"
 #include "hw/intc/sifive_plic.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/misc/riscv_rpmi.h"
+#include "hw/riscv/rpmi-fdt.h"
 #include "hw/core/platform-bus.h"
 #include "chardev/char.h"
 #include "system/device_tree.h"
 #include "system/system.h"
+#include "system/runstate.h"
 #include "system/tcg.h"
 #include "system/kvm.h"
 #include "system/tpm.h"
@@ -97,6 +100,9 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_UART0] =        { 0x10000000,         0x100 },
     [VIRT_VIRTIO] =       { 0x10001000,        0x1000 },
     [VIRT_FW_CFG] =       { 0x10100000,          0x18 },
+    [VIRT_RPMI_SHMEM] =   { 0x10200000,       0x20000 },
+    [VIRT_RPMI_DOORBELL] = { 0x10230000,        0x1000 },
+    [VIRT_RPMI_CPPC_FASTCHAN] = { 0x10240000,   0x4000 },
     [VIRT_FLASH] =        { 0x20000000,     0x4000000 },
     [VIRT_IMSIC_M] =      { 0x24000000, VIRT_IMSIC_MAX_SIZE },
     [VIRT_IMSIC_S] =      { 0x28000000, VIRT_IMSIC_MAX_SIZE },
@@ -1002,6 +1008,173 @@ static void create_fdt_iommu(RISCVVirtState *s, uint16_t bdf)
     s->pci_iommu_bdf = bdf;
 }
 
+#define VIRT_RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET 0x2000
+
+static const RiscvRpmiCppcProfile virt_rpmi_cppc_profile = {
+    .highest_perf = 32,
+    .nominal_perf = 30,
+    .lowest_nonlinear_perf = 8,
+    .lowest_perf = 8,
+    .reference_perf = 1,
+    .lowest_freq = 800,
+    .nominal_freq = 3000,
+    .transition_latency = 0,
+};
+
+static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
+    {
+        .kind = RISCV_RPMI_SERVICE_SYSRESET,
+        .node_name = "sysreset",
+        .compatible = "riscv,rpmi-system-reset",
+        .service_group = RISCV_RPMI_SRVGRP_SYSTEM_RESET,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_HSM,
+        .node_name = "hsm",
+        .compatible = "riscv,rpmi-hsm",
+        .service_group = RISCV_RPMI_SRVGRP_HSM,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_SYSSUSP,
+        .node_name = "suspend",
+        .compatible = "riscv,rpmi-system-suspend",
+        .service_group = RISCV_RPMI_SRVGRP_SYSTEM_SUSPEND,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_CPPC,
+        .node_name = "cppc",
+        .compatible = "riscv,rpmi-cppc",
+        .service_group = RISCV_RPMI_SRVGRP_CPPC,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_CLOCK,
+        .node_name = "clock",
+        .compatible = "riscv,rpmi-mpxy-clock",
+        .service_group = RISCV_RPMI_SRVGRP_CLOCK,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_MM,
+        .node_name = "mm",
+        .compatible = "riscv,rpmi-mpxy-mm",
+        .service_group = RISCV_RPMI_SRVGRP_MANAGEMENT_MODE,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_MM_CHANNEL,
+#ifdef CONFIG_LIBRPMI_LOGGING
+    }, {
+        .kind = RISCV_RPMI_SERVICE_LOGGING,
+        .node_name = "logging",
+        .compatible = "riscv,rpmi-logging",
+        .service_group = RISCV_RPMI_SRVGRP_LOGGING,
+#endif
+    }, {
+        .kind = RISCV_RPMI_SERVICE_SYSMSI,
+        .node_name = "sysmsi",
+        .compatible = "riscv,rpmi-mpxy-system-msi",
+        .service_group = RISCV_RPMI_SRVGRP_SYSTEM_MSI,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL,
+    },
+};
+
+static uint32_t virt_rpmi_service_count(RISCVVirtState *s)
+{
+    return s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC ?
+           ARRAY_SIZE(virt_rpmi_services) : ARRAY_SIZE(virt_rpmi_services) - 1;
+}
+
+static void virt_rpmi_system_reset(void *opaque)
+{
+    qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+}
+
+static void virt_rpmi_system_shutdown(void *opaque)
+{
+    qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+}
+
+static void virt_rpmi_system_suspend(void *opaque)
+{
+    qemu_system_suspend_request();
+}
+
+static void virt_rpmi_register_wakeup_support(void *opaque)
+{
+    qemu_register_wakeup_support();
+}
+
+static bool virt_rpmi_system_can_resume(void *opaque)
+{
+    return runstate_check(RUN_STATE_RUNNING);
+}
+
+static const RiscvRpmiMachineOps virt_rpmi_machine_ops = {
+    .system_reset = virt_rpmi_system_reset,
+    .system_shutdown = virt_rpmi_system_shutdown,
+    .system_suspend = virt_rpmi_system_suspend,
+    .register_wakeup_support = virt_rpmi_register_wakeup_support,
+    .system_can_resume = virt_rpmi_system_can_resume,
+};
+
+static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
+                                        const uint32_t *hart_ids,
+                                        uint32_t hart_count)
+{
+    return (RiscvRpmiConfig) {
+        .doorbell_base = s->memmap[VIRT_RPMI_DOORBELL].base,
+        .shmem_base = s->memmap[VIRT_RPMI_SHMEM].base,
+        .shmem_size = s->memmap[VIRT_RPMI_SHMEM].size,
+        .a2p_req_size = VIRT_RPMI_A2P_REQ_SIZE,
+        .p2a_req_size = VIRT_RPMI_P2A_REQ_SIZE,
+        .platform_info = "QEMU RISC-V virt RPMI",
+        .mm_store_path = s->rpmi_mm_store,
+        .machine_ops = &virt_rpmi_machine_ops,
+        .machine_opaque = s,
+        .hart_ids = hart_ids,
+        .hart_count = hart_count,
+        .sysmsi_msi_base = s->memmap[VIRT_IMSIC_S].base,
+        .sysmsi_msi_size = s->memmap[VIRT_IMSIC_S].size,
+        .cppc_fastchan_base = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].base,
+        .cppc_fastchan_size = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].size,
+        .cppc_perf_request_offset = 0,
+        .cppc_perf_feedback_offset =
+            VIRT_RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET,
+        .cppc_profile = &virt_rpmi_cppc_profile,
+        .services = virt_rpmi_services,
+        .service_count = virt_rpmi_service_count(s),
+    };
+}
+
+static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
+                            uint32_t msi_phandle)
+{
+    RiscvRpmiConfig rpmi_cfg = virt_rpmi_config(s, NULL, 0);
+    uint32_t rpmi_mbox_handle;
+    uint32_t mpxy_mbox_handle;
+    uint32_t i;
+    RiscvRpmiFdtMboxConfig cfg = {
+        .shmem_base = rpmi_cfg.shmem_base,
+        .doorbell_base = rpmi_cfg.doorbell_base,
+        .a2p_req_size = rpmi_cfg.a2p_req_size,
+        .p2a_req_size = rpmi_cfg.p2a_req_size,
+        .doorbell_size = s->memmap[VIRT_RPMI_DOORBELL].size,
+    };
+
+    riscv_rpmi_fdt_add_mbox(MACHINE(s)->fdt, &cfg, phandle,
+                            &rpmi_mbox_handle);
+
+    if (s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC) {
+        riscv_rpmi_fdt_add_sbi_mpxy_mbox(MACHINE(s)->fdt, phandle, true,
+                                         msi_phandle, &mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(MACHINE(s)->fdt, phandle,
+                                           msi_phandle, mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_clock(MACHINE(s)->fdt,
+                                          mpxy_mbox_handle);
+    }
+
+    for (i = 0; i < rpmi_cfg.service_count; i++) {
+        riscv_rpmi_fdt_add_service_node(MACHINE(s)->fdt, rpmi_cfg.shmem_base,
+                                        &rpmi_cfg.services[i],
+                                        rpmi_mbox_handle);
+    }
+}
+
 static void finalize_fdt(RISCVVirtState *s)
 {
     uint32_t phandle = 1, irq_mmio_phandle = 1, msi_pcie_phandle = 1;
@@ -1020,6 +1193,10 @@ static void finalize_fdt(RISCVVirtState *s)
     }
     create_fdt_pcie(s, irq_pcie_phandle, msi_pcie_phandle,
                     iommu_sys_phandle);
+
+    if (s->have_rpmi) {
+        create_fdt_rpmi(s, &phandle, msi_pcie_phandle);
+    }
 
     create_fdt_reset(s, &phandle);
 
@@ -1410,6 +1587,18 @@ static void virt_machine_init(MachineState *machine)
         exit(1);
     }
 
+    if (s->have_rpmi) {
+#ifndef CONFIG_LIBRPMI
+        error_report("RISC-V RPMI support is not compiled in");
+        exit(1);
+#else
+        if (kvm_enabled()) {
+            error_report("RISC-V RPMI support is not available with KVM");
+            exit(1);
+        }
+#endif
+    }
+
     /* Initialize sockets */
     mmio_irqchip = virtio_irqchip = pcie_irqchip = NULL;
     for (i = 0; i < socket_count; i++) {
@@ -1552,6 +1741,27 @@ static void virt_machine_init(MachineState *machine)
     /* SiFive Test MMIO device */
     sifive_test_create(s->memmap[VIRT_TEST].base);
 
+#ifdef CONFIG_LIBRPMI
+    if (s->have_rpmi) {
+        MachineClass *mc = MACHINE_GET_CLASS(machine);
+        const CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(machine);
+        g_autofree uint32_t *rpmi_hart_ids =
+            g_new0(uint32_t, machine->smp.cpus);
+        RiscvRpmiConfig rpmi_cfg;
+        Error *local_err = NULL;
+
+        for (i = 0; i < machine->smp.cpus; i++) {
+            rpmi_hart_ids[i] = possible_cpus->cpus[i].arch_id;
+        }
+
+        rpmi_cfg = virt_rpmi_config(s, rpmi_hart_ids, machine->smp.cpus);
+        if (!riscv_rpmi_create(&rpmi_cfg, &local_err)) {
+            error_report_err(local_err);
+            exit(1);
+        }
+    }
+#endif
+
     /* VirtIO MMIO devices */
     for (i = 0; i < VIRTIO_COUNT; i++) {
         sysbus_create_simple("virtio-mmio",
@@ -1626,6 +1836,7 @@ static void virt_machine_instance_finalize(Object *obj)
     }
     g_free(s->oem_id);
     g_free(s->oem_table_id);
+    g_free(s->rpmi_mm_store);
 }
 
 static void virt_machine_instance_init(Object *obj)
@@ -1636,6 +1847,7 @@ static void virt_machine_instance_init(Object *obj)
 
     s->oem_id = g_strndup(ACPI_BUILD_APPNAME6, 6);
     s->oem_table_id = g_strndup(ACPI_BUILD_APPNAME8, 8);
+    s->have_rpmi = false;
     s->acpi = ON_OFF_AUTO_AUTO;
     s->iommu_sys = ON_OFF_AUTO_AUTO;
 }
@@ -1708,6 +1920,35 @@ static void virt_set_aclint(Object *obj, bool value, Error **errp)
     RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
 
     s->have_aclint = value;
+}
+
+static bool virt_get_rpmi(Object *obj, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    return s->have_rpmi;
+}
+
+static void virt_set_rpmi(Object *obj, bool value, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    s->have_rpmi = value;
+}
+
+static char *virt_get_rpmi_mm_store(Object *obj, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    return g_strdup(s->rpmi_mm_store ?: "");
+}
+
+static void virt_set_rpmi_mm_store(Object *obj, const char *val, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    g_free(s->rpmi_mm_store);
+    s->rpmi_mm_store = val && val[0] ? g_strdup(val) : NULL;
 }
 
 bool virt_is_iommu_sys_enabled(RISCVVirtState *s)
@@ -1830,6 +2071,19 @@ static void virt_machine_class_init(ObjectClass *oc, const void *data)
                                           "(TCG only) Set on/off to "
                                           "enable/disable emulating "
                                           "ACLINT devices");
+
+    object_class_property_add_bool(oc, "rpmi", virt_get_rpmi,
+                                   virt_set_rpmi);
+    object_class_property_set_description(oc, "rpmi",
+                                          "Set on/off to enable/disable "
+                                          "RISC-V RPMI devices");
+
+    object_class_property_add_str(oc, "rpmi-mm-store",
+                                  virt_get_rpmi_mm_store,
+                                  virt_set_rpmi_mm_store);
+    object_class_property_set_description(oc, "rpmi-mm-store",
+                                          "Host file used to persist RPMI "
+                                          "Management Mode EFI variables");
 
     object_class_property_add_str(oc, "aia", virt_get_aia,
                                   virt_set_aia);
