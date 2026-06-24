@@ -217,6 +217,11 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 
 
 
+    if (s->context && s->sysreset_group) {
+        rpmi_context_remove_group(s->context, s->sysreset_group);
+        riscv_rpmi_sysreset_destroy(s->sysreset_group);
+        s->sysreset_group = NULL;
+    }
 
     if (s->context) {
         rpmi_context_destroy(s->context);
@@ -336,7 +341,32 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
                                          const RiscvRpmiServiceConfig *service,
                                          Error **errp)
 {
+    enum rpmi_error rc;
+    struct rpmi_service_group *group;
+
     switch (service->kind) {
+    case RISCV_RPMI_SERVICE_SYSRESET:
+        if (s->sysreset_group) {
+            error_setg(errp, "duplicate RPMI sysreset service descriptor");
+            return false;
+        }
+
+        group = riscv_rpmi_sysreset_create(s);
+        if (!group) {
+            error_setg(errp, "failed to create RPMI sysreset service group");
+            return false;
+        }
+
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            riscv_rpmi_sysreset_destroy(group);
+            error_setg(errp, "failed to add RPMI sysreset service group: %d",
+                       rc);
+            return false;
+        }
+
+        s->sysreset_group = group;
+        return true;
     default:
         error_setg(errp, "unsupported RPMI service kind %d", service->kind);
         return false;
