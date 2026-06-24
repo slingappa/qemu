@@ -206,6 +206,15 @@ static void riscv_rpmi_reset(DeviceState *dev)
         memory_region_set_dirty(&s->shmem, 0, s->shmem_size);
     }
 
+    if (s->hsm_hw_states) {
+        for (uint32_t i = 0; i < s->hart_count; i++) {
+            s->hsm_hw_states[i] = RPMI_HART_HW_STATE_STARTED;
+        }
+        if (s->hsm) {
+            rpmi_hsm_process_state_changes(s->hsm);
+        }
+    }
+
 }
 
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
@@ -216,6 +225,10 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 
 
 
+    if (s->context && s->hsm_group) {
+        rpmi_context_remove_group(s->context, s->hsm_group);
+    }
+    riscv_rpmi_hsm_destroy(s);
 
     if (s->context && s->sysreset_group) {
         rpmi_context_remove_group(s->context, s->sysreset_group);
@@ -345,6 +358,26 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
     struct rpmi_service_group *group;
 
     switch (service->kind) {
+    case RISCV_RPMI_SERVICE_HSM:
+        if (s->hsm_group) {
+            error_setg(errp, "duplicate RPMI HSM service descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_hsm_create(s, &group, errp)) {
+            return false;
+        }
+
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            s->hsm_group = group;
+            riscv_rpmi_hsm_destroy(s);
+            error_setg(errp, "failed to add RPMI HSM service group: %d", rc);
+            return false;
+        }
+
+        s->hsm_group = group;
+        return true;
     case RISCV_RPMI_SERVICE_SYSRESET:
         if (s->sysreset_group) {
             error_setg(errp, "duplicate RPMI sysreset service descriptor");
