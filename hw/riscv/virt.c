@@ -1056,6 +1056,14 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
     },
     {
+        .kind = RISCV_RPMI_SERVICE_MM,
+        .node_name = "mm",
+        .compatible = "riscv,rpmi-mpxy-mm",
+        .service_group = RISCV_RPMI_SRVGRP_MANAGEMENT_MODE,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_MM_CHANNEL,
+    },
+    {
         .kind = RISCV_RPMI_SERVICE_SYSMSI,
         .node_name = "sysmsi",
         .compatible = "riscv,rpmi-mpxy-system-msi",
@@ -1115,6 +1123,7 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
         .a2p_req_size = VIRT_RPMI_A2P_REQ_SIZE,
         .p2a_req_size = VIRT_RPMI_P2A_REQ_SIZE,
         .platform_info = "QEMU RISC-V virt RPMI",
+        .mm_store_path = s->rpmi_mm_store,
         .machine_ops = &virt_rpmi_machine_ops,
         .machine_opaque = s,
         .hart_ids = hart_ids,
@@ -1827,6 +1836,7 @@ static void virt_machine_instance_finalize(Object *obj)
     }
     g_free(s->oem_id);
     g_free(s->oem_table_id);
+    g_free(s->rpmi_mm_store);
 }
 
 static void virt_machine_instance_init(Object *obj)
@@ -1925,6 +1935,21 @@ static void virt_set_rpmi(Object *obj, bool value, Error **errp)
     RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
 
     s->have_rpmi = value;
+}
+
+static char *virt_get_rpmi_mm_store(Object *obj, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    return g_strdup(s->rpmi_mm_store ?: "");
+}
+
+static void virt_set_rpmi_mm_store(Object *obj, const char *val, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    g_free(s->rpmi_mm_store);
+    s->rpmi_mm_store = val && val[0] ? g_strdup(val) : NULL;
 }
 
 bool virt_is_iommu_sys_enabled(RISCVVirtState *s)
@@ -2054,6 +2079,13 @@ static void virt_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "rpmi",
                                           "Set on/off to enable/disable "
                                           "RISC-V RPMI devices");
+
+    object_class_property_add_str(oc, "rpmi-mm-store",
+                                  virt_get_rpmi_mm_store,
+                                  virt_set_rpmi_mm_store);
+    object_class_property_set_description(oc, "rpmi-mm-store",
+                                          "Host file used to persist RPMI "
+                                          "Management Mode EFI variables");
 
     object_class_property_add_str(oc, "aia", virt_get_aia,
                                   virt_set_aia);

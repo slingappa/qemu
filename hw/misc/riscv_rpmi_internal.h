@@ -18,6 +18,18 @@
 #define RPMI_PLAT_INFO "QEMU RISC-V RPMI"
 #define RPMI_CPPC_FREQ_MHZ_TO_HZ 1000000ULL
 #define RISCV_RPMI_CLOCK_COUNT 6
+#define RISCV_RPMI_MM_MAX_VARIABLES 100
+#define RISCV_RPMI_MM_STORE_VERSION 1
+
+struct RiscvRpmiMmVariable {
+    bool valid;
+    struct rpmi_guid_t guid;
+    uint32_t attr;
+    uint64_t namesize;
+    uint64_t datasize;
+    uint8_t *name;
+    uint8_t *data;
+};
 
 extern const struct rpmi_shmem_platform_ops rpmi_shmem_qemu_ops;
 bool riscv_rpmi_service_enabled(RiscvRpmiState *s,
@@ -57,6 +69,11 @@ void riscv_rpmi_sysmsi_remove(RiscvRpmiState *s);
 
 bool riscv_rpmi_clock_add(RiscvRpmiState *s, Error **errp);
 void riscv_rpmi_clock_remove(RiscvRpmiState *s);
+
+void riscv_rpmi_mm_configure(RiscvRpmiState *s,
+                              const RiscvRpmiConfig *cfg);
+bool riscv_rpmi_mm_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_mm_remove(RiscvRpmiState *s);
 
 
 #endif

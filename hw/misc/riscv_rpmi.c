@@ -225,6 +225,11 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .kind = RISCV_RPMI_SERVICE_CLOCK,
         .add = riscv_rpmi_clock_add,
         .remove = riscv_rpmi_clock_remove,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_MM,
+        .configure = riscv_rpmi_mm_configure,
+        .add = riscv_rpmi_mm_add,
+        .remove = riscv_rpmi_mm_remove,
     },
 };
 
@@ -530,6 +535,7 @@ static void riscv_rpmi_finalize(Object *obj)
     RiscvRpmiState *s = RISCV_RPMI(obj);
 
     g_free(s->platform_info);
+    g_free(s->mm_store_path);
     g_free(s->hart_ids);
 }
 

@@ -38,6 +38,7 @@
 #define RISCV_RPMI_SRVGRP_CPPC           6
 #define RISCV_RPMI_SRVGRP_SYSTEM_MSI     2
 #define RISCV_RPMI_SRVGRP_CLOCK          8
+#define RISCV_RPMI_SRVGRP_MANAGEMENT_MODE 11
 
 #define TYPE_RISCV_RPMI "riscv-rpmi"
 OBJECT_DECLARE_SIMPLE_TYPE(RiscvRpmiState, RISCV_RPMI)
@@ -48,6 +49,7 @@ struct rpmi_shmem;
 struct rpmi_transport;
 struct rpmi_cppc_regs;
 struct rpmi_hsm;
+typedef struct RiscvRpmiMmVariable RiscvRpmiMmVariable;
 
 typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_INVALID = 0,
@@ -57,6 +59,7 @@ typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_CPPC,
     RISCV_RPMI_SERVICE_SYSMSI,
     RISCV_RPMI_SERVICE_CLOCK,
+    RISCV_RPMI_SERVICE_MM,
 } RiscvRpmiServiceKind;
 
 typedef struct RiscvRpmiCppcProfile {
@@ -98,6 +101,7 @@ typedef struct RiscvRpmiConfig {
     uint32_t a2p_req_size;
     uint32_t p2a_req_size;
     const char *platform_info;
+    const char *mm_store_path;
     const RiscvRpmiMachineOps *machine_ops;
     void *machine_opaque;
     hwaddr sysmsi_msi_base;
@@ -123,6 +127,7 @@ struct RiscvRpmiState {
     uint32_t a2p_req_size;
     uint32_t p2a_req_size;
     char *platform_info;
+    char *mm_store_path;
     const RiscvRpmiMachineOps *machine_ops;
     void *machine_opaque;
     hwaddr sysmsi_msi_base;
@@ -147,6 +152,9 @@ struct RiscvRpmiState {
     struct rpmi_service_group *sysmsi_group;
     RiscvRpmiClockState *clock_state;
     struct rpmi_service_group *clock_group;
+    struct rpmi_service_group *mm_group;
+    RiscvRpmiMmVariable *mm_variables;
+    uint32_t mm_variable_count;
     Notifier powerdown_notifier;
     Notifier suspend_notifier;
     bool powerdown_notifier_registered;
