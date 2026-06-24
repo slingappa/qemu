@@ -227,6 +227,10 @@ static void riscv_rpmi_reset(DeviceState *dev)
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
 {
 
+    if (s->context && s->mm_group) {
+        rpmi_context_remove_group(s->context, s->mm_group);
+    }
+    riscv_rpmi_mm_destroy(s);
 
     if (s->context && s->clock_group) {
         rpmi_context_remove_group(s->context, s->clock_group);
@@ -481,6 +485,26 @@ static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
         }
 
         s->clock_group = group;
+        return true;
+    case RISCV_RPMI_SERVICE_MM:
+        if (s->mm_group) {
+            error_setg(errp, "duplicate RPMI MM service descriptor");
+            return false;
+        }
+
+        if (!riscv_rpmi_mm_create(s, &group, errp)) {
+            return false;
+        }
+
+        rc = rpmi_context_add_group(s->context, group);
+        if (rc != RPMI_SUCCESS) {
+            s->mm_group = group;
+            riscv_rpmi_mm_destroy(s);
+            error_setg(errp, "failed to add RPMI MM service group: %d", rc);
+            return false;
+        }
+
+        s->mm_group = group;
         return true;
     case RISCV_RPMI_SERVICE_SYSRESET:
         if (s->sysreset_group) {
