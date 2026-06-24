@@ -54,3 +54,10 @@ void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt G_GNUC_UNUSED,
 {
     g_assert_not_reached();
 }
+
+void riscv_rpmi_fdt_add_sbi_mpxy_clock(void *fdt G_GNUC_UNUSED,
+                                       uint32_t mpxy_mbox_phandle
+                                       G_GNUC_UNUSED)
+{
+    g_assert_not_reached();
+}
