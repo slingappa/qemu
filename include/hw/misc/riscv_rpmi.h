@@ -38,6 +38,8 @@
 #define RISCV_RPMI_SRVGRP_CPPC           6
 #define RISCV_RPMI_SRVGRP_SYSTEM_MSI     2
 #define RISCV_RPMI_SRVGRP_CLOCK          8
+#define RISCV_RPMI_SRVGRP_LOGGING         14
+#define RISCV_RPMI_LOGGING_DATA_MAX 64
 
 #define TYPE_RISCV_RPMI "riscv-rpmi"
 OBJECT_DECLARE_SIMPLE_TYPE(RiscvRpmiState, RISCV_RPMI)
@@ -57,6 +59,7 @@ typedef enum RiscvRpmiServiceKind {
     RISCV_RPMI_SERVICE_CPPC,
     RISCV_RPMI_SERVICE_SYSMSI,
     RISCV_RPMI_SERVICE_CLOCK,
+    RISCV_RPMI_SERVICE_LOGGING,
 } RiscvRpmiServiceKind;
 
 typedef struct RiscvRpmiCppcProfile {
@@ -145,6 +148,10 @@ struct RiscvRpmiState {
     struct rpmi_service_group *sysmsi_group;
     RiscvRpmiClockState *clock_state;
     struct rpmi_service_group *clock_group;
+    struct rpmi_service_group *logging_group;
+    uint32_t logging_type;
+    uint32_t logging_data_len;
+    uint8_t logging_data[RISCV_RPMI_LOGGING_DATA_MAX];
     Notifier powerdown_notifier;
     Notifier suspend_notifier;
     bool powerdown_notifier_registered;

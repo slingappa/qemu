@@ -1065,6 +1065,12 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
     },
     {
+        .kind = RISCV_RPMI_SERVICE_LOGGING,
+        .node_name = "logging",
+        .compatible = "riscv,rpmi-logging",
+        .service_group = RISCV_RPMI_SRVGRP_LOGGING,
+    },
+    {
         .kind = RISCV_RPMI_SERVICE_SYSMSI,
         .node_name = "sysmsi",
         .compatible = "riscv,rpmi-mpxy-system-msi",
