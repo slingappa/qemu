@@ -2023,9 +2023,9 @@ if not get_option('librpmi').auto() or have_system
   librpmi = dependency('librpmi', required: get_option('librpmi'),
                        method: 'pkg-config')
   if librpmi.found() and not cc.has_header_symbol('librpmi.h',
-                                                  'rpmi_service_group_syssusp_create',
+                                                  'rpmi_service_group_logging_create',
                                                   dependencies: librpmi)
-    error('librpmi support requires the RPMI system suspend service group API')
+    error('librpmi support requires the RPMI logging service group API')
   endif
 endif
 

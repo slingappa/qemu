@@ -59,5 +59,7 @@ void riscv_rpmi_sysmsi_remove(RiscvRpmiState *s);
 bool riscv_rpmi_clock_add(RiscvRpmiState *s, Error **errp);
 void riscv_rpmi_clock_remove(RiscvRpmiState *s);
 
+bool riscv_rpmi_logging_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_logging_remove(RiscvRpmiState *s);
 
 #endif

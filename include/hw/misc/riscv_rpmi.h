@@ -26,6 +26,7 @@ enum rpmi_servicegroup_id {
     RPMI_SRVGRP_HSM = 0x0005,
     RPMI_SRVGRP_CPPC = 0x0006,
     RPMI_SRVGRP_CLOCK = 0x0008,
+    RPMI_SRVGRP_LOGGING = 0x000e,
 };
 #endif
 
@@ -45,6 +46,7 @@ enum rpmi_servicegroup_id {
 #define RPMI_SYS_MSI_SUSPEND_INDEX  2
 #define RPMI_SYS_MSI_P2A_DB_INDEX   3
 #define RPMI_SYS_NUM_MSI            4
+#define RISCV_RPMI_LOGGING_DATA_MAX 64
 #define TYPE_RISCV_RPMI "riscv-rpmi"
 OBJECT_DECLARE_SIMPLE_TYPE(RiscvRpmiState, RISCV_RPMI)
 
@@ -140,6 +142,10 @@ struct RiscvRpmiState {
     struct rpmi_service_group *sysmsi_group;
     RiscvRpmiClockState *clock_state;
     struct rpmi_service_group *clock_group;
+    struct rpmi_service_group *logging_group;
+    uint32_t logging_type;
+    uint32_t logging_data_len;
+    uint8_t logging_data[RISCV_RPMI_LOGGING_DATA_MAX];
     Notifier powerdown_notifier;
     Notifier suspend_notifier;
     bool powerdown_notifier_registered;
