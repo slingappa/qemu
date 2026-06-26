@@ -230,6 +230,10 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .configure = riscv_rpmi_mm_configure,
         .add = riscv_rpmi_mm_add,
         .remove = riscv_rpmi_mm_remove,
+    }, {
+        .kind = RISCV_RPMI_SERVICE_LOGGING,
+        .add = riscv_rpmi_logging_add,
+        .remove = riscv_rpmi_logging_remove,
     },
 };
 

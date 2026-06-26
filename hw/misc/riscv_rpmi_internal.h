@@ -75,5 +75,7 @@ void riscv_rpmi_mm_configure(RiscvRpmiState *s,
 bool riscv_rpmi_mm_add(RiscvRpmiState *s, Error **errp);
 void riscv_rpmi_mm_remove(RiscvRpmiState *s);
 
+bool riscv_rpmi_logging_add(RiscvRpmiState *s, Error **errp);
+void riscv_rpmi_logging_remove(RiscvRpmiState *s);
 
 #endif

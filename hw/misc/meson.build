@@ -177,4 +177,5 @@ system_ss.add(when: 'CONFIG_RISCV_RPMI', if_true: [files(
   'riscv_rpmi_sysmsi.c',
   'riscv_rpmi_clock.c',
   'riscv_rpmi_mm.c',
+  'riscv_rpmi_logging.c',
 ), librpmi])
