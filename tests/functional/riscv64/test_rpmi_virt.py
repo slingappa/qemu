@@ -177,6 +177,15 @@ class RiscvVirtRpmiGuestTest(QemuSystemTest):
             'else echo RPMI_LINUX_CLOCK_FAIL; fi',
             'RPMI_LINUX_CLOCK_PASS', 'RPMI_LINUX_CLOCK_FAIL')
 
+    def _validate_mm_dt(self):
+        self._run_marker_command(
+            'echo RPMI_LINUX_MM_BEGIN; '
+            'dt=/sys/firmware/devicetree/base; '
+            'grep -R -a -l "rpmi-mpxy-mm" "$dt" 2>/dev/null | '
+            'grep -q . && echo RPMI_LINUX_MM_PASS || '
+            'echo RPMI_LINUX_MM_FAIL',
+            'RPMI_LINUX_MM_PASS', 'RPMI_LINUX_MM_FAIL')
+
     def _validate_logging_dt(self):
         self._run_marker_command(
             'echo RPMI_LINUX_LOGGING_BEGIN; '
@@ -206,6 +215,7 @@ class RiscvVirtRpmiGuestTest(QemuSystemTest):
         self._validate_sysmsi_powerdown_irq()
         self._validate_cppc_sysfs()
         self._validate_clock_dt()
+        self._validate_mm_dt()
         self._validate_logging_dt()
 
     def test_linux_guest_hsm_stop(self):
