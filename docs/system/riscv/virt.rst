@@ -157,11 +157,11 @@ The following machine-specific options are supported:
   support. This support targets the RISC-V Platform Management Interface
   (RPMI) Specification v1.0 Ratified (`RPMI v1.0 specification`_). The
   ``virt`` implementation exposes RPMI system reset, system suspend, HSM,
-  CPPC, and clock service groups. System reset can request shutdown or cold
-  reboot through RPMI. HSM uses the ``virt`` hart IDs and supports hart
-  discovery, status, start, stop, and suspend commands across all configured
-  sockets through one SoC-wide RPMI transport. System suspend uses QEMU's
-  suspend and wakeup path.
+  CPPC, clock, and Management Mode service groups. System reset can request
+  shutdown or cold reboot through RPMI. HSM uses the ``virt`` hart IDs and
+  supports hart discovery, status, start, stop, and suspend commands across all
+  configured sockets through one SoC-wide RPMI transport. System suspend uses
+  QEMU's suspend and wakeup path.
 
   The build dependency is provided by `librpmi`_. QEMU requires librpmi 1.0.0
   or newer. If the host distribution does not provide a librpmi development
@@ -190,10 +190,29 @@ The following machine-specific options are supported:
   window. QEMU ``system_powerdown``, ``system_reset``, and system suspend
   inject the shutdown, reboot, and suspend System MSIs respectively when
   enabled by the guest. The clock service exposes a synthetic RPMI clock table
-  for firmware compatibility. Migration is currently blocked while RPMI
-  transport and service VMState support is being designed. RPMI logging is
-  exposed when QEMU is built with a librpmi version that provides the logging
-  service group API.
+  for firmware compatibility. Management Mode reports attributes and registers
+  EFI variable handlers. If RPMI is enabled and a writable ``pflash1`` image is
+  supplied, Management Mode stores EFI variables in a reserved 1 MiB region at
+  the end of that flash image so they persist across QEMU process restarts. The
+  guest-visible flash device-tree range for ``pflash1`` excludes this reserved
+  RPMI MM region. Without a ``pflash1`` image, the MM EFI variable backend is
+  in-memory only and persists only for the lifetime of the QEMU process,
+  including across guest-initiated system resets. Migration is currently
+  blocked while RPMI transport and service VMState support is being designed.
+  RPMI logging is exposed when QEMU is built with a librpmi version that
+  provides the logging service group API.
+
+  For persistent RPMI MM EFI variables, create a 32 MiB variable flash image
+  and pass it as ``pflash1``. The final 1 MiB is reserved for RPMI MM storage
+  when ``rpmi=on``:
+
+  .. code-block:: bash
+
+    $ qemu-img create -f raw rpmi-mm-vars.fd 32M
+    $ qemu-system-riscv64 \
+        -machine virt,rpmi=on \
+        -drive if=pflash,unit=1,format=raw,file=rpmi-mm-vars.fd \
+        ... other args ...
 
 .. _RPMI v1.0 specification: https://github.com/riscv-non-isa/riscv-rpmi/releases/download/v1.0/riscv-rpmi.pdf
 .. _librpmi: https://github.com/riscv-software-src/librpmi
