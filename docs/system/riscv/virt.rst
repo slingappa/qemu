@@ -21,6 +21,7 @@ The ``virt`` machine supports the following devices:
 * 1 SiFive Test device
 * 8 virtio-mmio transport devices
 * 1 generic PCIe host bridge
+* Optional RISC-V RPMI shared-memory transport
 * The fw_cfg device that allows a guest to obtain data from QEMU
 
 The hypervisor extension has been enabled for the default CPU, so virtual
@@ -154,13 +155,13 @@ The following machine-specific options are supported:
   Enables the RISC-V RPMI shared-memory transport. This option defaults to
   "off", is TCG-only, and is available only when QEMU is built with librpmi
   support. This support targets the RISC-V Platform Management Interface
-  (RPMI) Specification v1.0 Ratified (`RPMI v1.0 specification`_). The initial
-  ``virt`` implementation exposes RPMI system reset, system suspend, and HSM
-  service groups. System reset can request shutdown or cold reboot through
-  RPMI. HSM uses the ``virt`` hart IDs and supports hart discovery, status,
-  start, stop, and suspend commands. System suspend uses QEMU's suspend and
-  wakeup path. Migration is currently blocked while RPMI transport and service
-  VMState support is being designed.
+  (RPMI) Specification v1.0 Ratified (`RPMI v1.0 specification`_). The
+  ``virt`` implementation exposes RPMI system reset, system suspend, HSM,
+  CPPC, and clock service groups. System reset can request shutdown or cold
+  reboot through RPMI. HSM uses the ``virt`` hart IDs and supports hart
+  discovery, status, start, stop, and suspend commands across all configured
+  sockets through one SoC-wide RPMI transport. System suspend uses QEMU's
+  suspend and wakeup path.
 
   The build dependency is provided by `librpmi`_. QEMU requires librpmi 1.0.0
   or newer. If the host distribution does not provide a librpmi development
@@ -180,6 +181,19 @@ The following machine-specific options are supported:
   packages with ``make deb-pkg`` and ``librpmi-devel`` RPM packages with
   ``make rpm-pkg``. After installing librpmi, configure QEMU with
   ``--enable-librpmi`` or ``-Dlibrpmi=enabled``.
+
+  CPPC exposes fixed virtual performance capability values and a fast-channel
+  shared-memory region for guest-visible feedback counters. These values are
+  synthetic and do not model host CPU frequency scaling. When
+  ``aia=aplic-imsic`` is selected, ``virt`` also exposes the RPMI System MSI
+  service. System MSI targets are accepted only inside the S-mode IMSIC MMIO
+  window. QEMU ``system_powerdown``, ``system_reset``, and system suspend
+  inject the shutdown, reboot, and suspend System MSIs respectively when
+  enabled by the guest. The clock service exposes a synthetic RPMI clock table
+  for firmware compatibility. Migration is currently blocked while RPMI
+  transport and service VMState support is being designed. RPMI logging is
+  exposed when QEMU is built with a librpmi version that provides the logging
+  service group API.
 
 .. _RPMI v1.0 specification: https://github.com/riscv-non-isa/riscv-rpmi/releases/download/v1.0/riscv-rpmi.pdf
 .. _librpmi: https://github.com/riscv-software-src/librpmi
@@ -203,21 +217,24 @@ RPMI firmware and guest smoke
 -----------------------------
 
 A firmware-level RPMI smoke test can be run with OpenSBI, a Linux kernel, and a
-RISC-V disk image:
+RISC-V disk image. The example below enables the full ``virt`` RPMI topology,
+including System MSI through AIA IMSIC:
 
 .. code-block:: bash
 
   $ qemu-system-riscv64 \
-      -machine virt,rpmi=on \
+      -machine virt,rpmi=on,aia=aplic-imsic \
       -cpu rv64 -smp 4 -m 4G -nographic \
       -bios /path/to/fw_jump.bin \
       -kernel /path/to/Image \
       -append "root=/dev/vda rw console=ttyS0 earlycon=sbi" \
       -drive file=/path/to/rootfs.img,format=raw,if=virtio,snapshot=on
 
-The OpenSBI banner should report RPMI-backed HSM and system suspend support.
-After the guest reaches a shell, normal guest reboot/poweroff commands exercise
-the RPMI system reset path.
+The OpenSBI banner should report RPMI-backed HSM, system suspend, and CPPC
+support. After the guest reaches a shell, use guest-side RPMI/SBI probes to
+validate service groups, for example checking ``dmesg`` for RPMI/SBI messages,
+reading CPPC sysfs entries when the guest kernel exposes them, and issuing
+normal guest reboot/poweroff commands to exercise RPMI system reset paths.
 
 RPMI device tree policy
 -----------------------
@@ -225,9 +242,8 @@ RPMI device tree policy
 RPMI is currently described through FDT only; no ACPI representation is emitted
 for the RPMI transport or service groups. The ``virt`` machine uses the
 ``riscv,rpmi-shmem-mbox`` shared-memory mailbox node plus child service nodes
-with ``riscv,rpmi-*`` compatible strings. These binding names are part of the
-RPMI RFC surface and may be revised if the RISC-V RPMI bindings change during
-review.
+with ``riscv,rpmi-*`` compatible strings. Services that require an RPMI
+channel identifier record that identifier in the corresponding service node.
 
 Running Linux kernel
 --------------------

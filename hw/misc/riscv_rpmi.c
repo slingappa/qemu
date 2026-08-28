@@ -49,11 +49,13 @@ static bool riscv_rpmi_addr_in_range(uint64_t addr, uint32_t len,
 static enum rpmi_error shmem_qemu_read(void *priv, rpmi_uint64_t addr,
                                        void *buf, rpmi_uint32_t len)
 {
-    RiscvRpmiState *s = RISCV_RPMI(priv);
+    RiscvRpmiState *s = priv;
 
     if (!s || !buf ||
-        !riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
-                                  s->shmem_size)) {
+        (!riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
+                                   s->shmem_size) &&
+         !riscv_rpmi_addr_in_range(addr, len, s->cppc_fastchan_base,
+                                   s->cppc_fastchan_size))) {
         return RPMI_ERR_BAD_RANGE;
     }
 
@@ -62,13 +64,15 @@ static enum rpmi_error shmem_qemu_read(void *priv, rpmi_uint64_t addr,
 }
 
 static enum rpmi_error shmem_qemu_write(void *priv, rpmi_uint64_t addr,
-                                       const void *buf, rpmi_uint32_t len)
+                                        const void *buf, rpmi_uint32_t len)
 {
-    RiscvRpmiState *s = RISCV_RPMI(priv);
+    RiscvRpmiState *s = priv;
 
     if (!s || !buf ||
-        !riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
-                                  s->shmem_size)) {
+        (!riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
+                                   s->shmem_size) &&
+         !riscv_rpmi_addr_in_range(addr, len, s->cppc_fastchan_base,
+                                   s->cppc_fastchan_size))) {
         return RPMI_ERR_BAD_RANGE;
     }
 
@@ -82,8 +86,10 @@ static enum rpmi_error shmem_qemu_fill(void *priv, rpmi_uint64_t addr,
     RiscvRpmiState *s = RISCV_RPMI(priv);
 
     if (!s ||
-        !riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
-                                  s->shmem_size)) {
+        (!riscv_rpmi_addr_in_range(addr, len, s->shmem_base,
+                                   s->shmem_size) &&
+         !riscv_rpmi_addr_in_range(addr, len, s->cppc_fastchan_base,
+                                   s->cppc_fastchan_size))) {
         return RPMI_ERR_BAD_RANGE;
     }
 
@@ -203,6 +209,22 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .service_group = RPMI_SRVGRP_SYSTEM_SUSPEND,
         .add = riscv_rpmi_syssusp_add,
         .remove = riscv_rpmi_syssusp_remove,
+    }, {
+        .service_group = RPMI_SRVGRP_CPPC,
+        .add = riscv_rpmi_cppc_add,
+        .remove = riscv_rpmi_cppc_remove,
+    }, {
+        .service_group = RPMI_SRVGRP_SYSTEM_MSI,
+        .add = riscv_rpmi_sysmsi_add,
+        .remove = riscv_rpmi_sysmsi_remove,
+    }, {
+        .service_group = RPMI_SRVGRP_CLOCK,
+        .add = riscv_rpmi_clock_add,
+        .remove = riscv_rpmi_clock_remove,
+    }, {
+        .service_group = RPMI_SRVGRP_LOGGING,
+        .add = riscv_rpmi_logging_add,
+        .remove = riscv_rpmi_logging_remove,
     },
 };
 
@@ -233,6 +255,13 @@ static void riscv_rpmi_configure_base(RiscvRpmiState *s,
                                     cfg->hart_count * sizeof(*cfg->hart_ids));
         }
     }
+
+    if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_CPPC)) {
+        riscv_rpmi_cppc_configure(s, cfg);
+    }
+    if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_SYSTEM_MSI)) {
+        riscv_rpmi_sysmsi_configure(s, cfg);
+    }
 }
 
 static void riscv_rpmi_init(Object *obj)
@@ -256,6 +285,7 @@ static void riscv_rpmi_reset_hold(Object *obj, ResetType type)
     }
 
     riscv_rpmi_hsm_reset(s);
+    riscv_rpmi_cppc_reset_fastchan(s);
 }
 
 static void riscv_rpmi_cleanup(RiscvRpmiState *s)
@@ -278,6 +308,8 @@ static void riscv_rpmi_cleanup(RiscvRpmiState *s)
         rpmi_shmem_destroy(s->rpmi_shmem);
         s->rpmi_shmem = NULL;
     }
+
+    riscv_rpmi_cppc_unrealize_fastchan(s);
 
     if (s->has_shmem) {
         memory_region_del_subregion(get_system_memory(), &s->shmem);
@@ -387,7 +419,15 @@ static bool riscv_rpmi_validate_config(RiscvRpmiState *s, Error **errp)
         return false;
     }
 
-    return true;
+    if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_CPPC) &&
+        ranges_overlap(s->shmem_base, s->shmem_size,
+                       s->cppc_fastchan_base, s->cppc_fastchan_size)) {
+        error_setg(errp,
+                   "RPMI shared memory overlaps CPPC fast-channel memory");
+        return false;
+    }
+
+    return riscv_rpmi_validate_cppc_config(s, errp);
 }
 
 static bool riscv_rpmi_add_service_group(RiscvRpmiState *s,
@@ -471,6 +511,11 @@ static void riscv_rpmi_realize(DeviceState *dev, Error **errp)
 
     memory_region_add_subregion(get_system_memory(), s->shmem_base, &s->shmem);
     s->has_shmem = true;
+
+    if (!riscv_rpmi_cppc_realize_fastchan(s, dev, errp)) {
+        riscv_rpmi_cleanup(s);
+        return;
+    }
 
     if (!riscv_rpmi_init_context(s, errp)) {
         riscv_rpmi_cleanup(s);
