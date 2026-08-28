@@ -222,6 +222,10 @@ static const RiscvRpmiServiceOps riscv_rpmi_service_ops[] = {
         .add = riscv_rpmi_clock_add,
         .remove = riscv_rpmi_clock_remove,
     }, {
+        .service_group = RPMI_SRVGRP_MANAGEMENT_MODE,
+        .add = riscv_rpmi_mm_add,
+        .remove = riscv_rpmi_mm_remove,
+    }, {
         .service_group = RPMI_SRVGRP_LOGGING,
         .add = riscv_rpmi_logging_add,
         .remove = riscv_rpmi_logging_remove,
@@ -261,6 +265,9 @@ static void riscv_rpmi_configure_base(RiscvRpmiState *s,
     }
     if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_SYSTEM_MSI)) {
         riscv_rpmi_sysmsi_configure(s, cfg);
+    }
+    if (riscv_rpmi_service_enabled(s, RPMI_SRVGRP_MANAGEMENT_MODE)) {
+        riscv_rpmi_mm_configure(s, cfg);
     }
 }
 

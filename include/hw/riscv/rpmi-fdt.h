@@ -16,6 +16,7 @@
 
 #define RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL 0x1000
 #define RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL  0x1001
+#define RISCV_RPMI_SBI_MPXY_MM_CHANNEL     0x1003
 
 typedef struct RiscvRpmiFdtMboxConfig {
     hwaddr shmem_base;
