@@ -105,6 +105,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_FW_CFG] =       { 0x10100000,          0x18 },
     [VIRT_RPMI_SHMEM] =   { 0x10200000,       0x20000 },
     [VIRT_RPMI_DOORBELL] = { 0x10230000,        0x1000 },
+    [VIRT_RPMI_CPPC_FASTCHAN] = { 0x10240000,   0x4000 },
     [VIRT_FLASH] =        { 0x20000000,     0x4000000 },
     [VIRT_IMSIC_M] =      { 0x24000000, VIRT_IMSIC_MAX_SIZE },
     [VIRT_IMSIC_S] =      { 0x28000000, VIRT_IMSIC_MAX_SIZE },
@@ -1003,6 +1004,19 @@ static void create_fdt_iommu(RISCVVirtState *s, uint16_t bdf)
 }
 
 
+#define VIRT_RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET 0x2000
+
+static const RiscvRpmiCppcProfile virt_rpmi_cppc_profile = {
+    .highest_perf = 32,
+    .nominal_perf = 30,
+    .lowest_nonlinear_perf = 8,
+    .lowest_perf = 8,
+    .reference_perf = 1,
+    .lowest_freq = 800,
+    .nominal_freq = 3000,
+    .transition_latency = 0,
+};
+
 static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
     {
         .node_name = "sysreset",
@@ -1019,11 +1033,36 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .compatible = "riscv,rpmi-system-suspend",
         .service_group = RPMI_SRVGRP_SYSTEM_SUSPEND,
     },
+    {
+        .node_name = "cppc",
+        .compatible = "riscv,rpmi-cppc",
+        .service_group = RPMI_SRVGRP_CPPC,
+    },
+    {
+        .node_name = "clock",
+        .compatible = "riscv,rpmi-mpxy-clock",
+        .service_group = RPMI_SRVGRP_CLOCK,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL,
+    },
+    {
+        .node_name = "logging",
+        .compatible = "riscv,rpmi-logging",
+        .service_group = RPMI_SRVGRP_LOGGING,
+    },
+    {
+        .node_name = "sysmsi",
+        .compatible = "riscv,rpmi-mpxy-system-msi",
+        .service_group = RPMI_SRVGRP_SYSTEM_MSI,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL,
+    },
 };
 
 static uint32_t virt_rpmi_service_count(RISCVVirtState *s)
 {
-    return ARRAY_SIZE(virt_rpmi_services);
+    return s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC ?
+           ARRAY_SIZE(virt_rpmi_services) : ARRAY_SIZE(virt_rpmi_services) - 1;
 }
 
 static void virt_rpmi_system_reset(void)
@@ -1073,6 +1112,14 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
         .machine_ops = &virt_rpmi_machine_ops,
         .hart_ids = hart_ids,
         .hart_count = hart_count,
+        .sysmsi_msi_base = s->memmap[VIRT_IMSIC_S].base,
+        .sysmsi_msi_size = s->memmap[VIRT_IMSIC_S].size,
+        .cppc_fastchan_base = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].base,
+        .cppc_fastchan_size = s->memmap[VIRT_RPMI_CPPC_FASTCHAN].size,
+        .cppc_perf_request_offset = 0,
+        .cppc_perf_feedback_offset =
+            VIRT_RPMI_CPPC_FASTCHAN_FEEDBACK_OFFSET,
+        .cppc_profile = &virt_rpmi_cppc_profile,
         .services = virt_rpmi_services,
         .service_count = virt_rpmi_service_count(s),
     };
@@ -1083,6 +1130,7 @@ static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
 {
     RiscvRpmiConfig rpmi_cfg = virt_rpmi_config(s, NULL, 0);
     uint32_t rpmi_mbox_handle;
+    uint32_t mpxy_mbox_handle;
     uint32_t i;
     RiscvRpmiFdtMboxConfig cfg = {
         .shmem_base = rpmi_cfg.shmem_base,
@@ -1094,6 +1142,15 @@ static void create_fdt_rpmi(RISCVVirtState *s, uint32_t *phandle,
 
     riscv_rpmi_fdt_add_mbox(MACHINE(s)->fdt, &cfg, phandle,
                             &rpmi_mbox_handle);
+
+    if (s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC) {
+        riscv_rpmi_fdt_add_sbi_mpxy_mbox(MACHINE(s)->fdt, phandle, true,
+                                         msi_phandle, &mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(MACHINE(s)->fdt, phandle,
+                                           msi_phandle, mpxy_mbox_handle);
+        riscv_rpmi_fdt_add_sbi_mpxy_clock(MACHINE(s)->fdt,
+                                          mpxy_mbox_handle);
+    }
 
     for (i = 0; i < rpmi_cfg.service_count; i++) {
         riscv_rpmi_fdt_add_service_node(MACHINE(s)->fdt, rpmi_cfg.shmem_base,

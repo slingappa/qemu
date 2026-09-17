@@ -14,6 +14,9 @@
 #include "exec/hwaddr.h"
 #include "hw/misc/riscv_rpmi.h"
 
+#define RISCV_RPMI_SBI_MPXY_SYSMSI_CHANNEL 0x1000
+#define RISCV_RPMI_SBI_MPXY_CLOCK_CHANNEL  0x1001
+
 typedef struct RiscvRpmiFdtMboxConfig {
     hwaddr shmem_base;
     hwaddr doorbell_base;
@@ -37,5 +40,14 @@ void riscv_rpmi_fdt_add_service(void *fdt, hwaddr shmem_base,
 void riscv_rpmi_fdt_add_service_node(void *fdt, hwaddr shmem_base,
                                      const RiscvRpmiServiceConfig *service,
                                      uint32_t mbox_handle);
+void riscv_rpmi_fdt_add_sbi_mpxy_mbox(void *fdt, uint32_t *phandle,
+                                      bool has_msi_parent,
+                                      uint32_t msi_phandle,
+                                      uint32_t *mpxy_mbox_phandle);
+void riscv_rpmi_fdt_add_sbi_mpxy_sysmsi(void *fdt, uint32_t *phandle,
+                                        uint32_t msi_phandle,
+                                        uint32_t mpxy_mbox_phandle);
+void riscv_rpmi_fdt_add_sbi_mpxy_clock(void *fdt,
+                                       uint32_t mpxy_mbox_phandle);
 
 #endif
