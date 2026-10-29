@@ -56,6 +56,7 @@
 #include "system/kvm.h"
 #include "system/tpm.h"
 #include "system/qtest.h"
+#include "system/blockdev.h"
 #include "hw/pci/pci.h"
 #include "hw/pci-host/gpex.h"
 #include "hw/display/ramfb.h"
@@ -128,6 +129,7 @@ static const MemMapEntry virt_memmap[] = {
 static MemMapEntry virt_high_pcie_memmap;
 
 #define VIRT_FLASH_SECTOR_SIZE (256 * KiB)
+#define VIRT_RPMI_MM_PFLASH_STORE_SIZE (1 * MiB)
 
 static void virt_flash_create(RISCVVirtState *s)
 {
@@ -520,6 +522,13 @@ static const RiscvRpmiServiceConfig virt_rpmi_services[] = {
         .service_group = RPMI_SRVGRP_LOGGING,
     },
     {
+        .node_name = "mm",
+        .compatible = "riscv,rpmi-mpxy-mm",
+        .service_group = RPMI_SRVGRP_MANAGEMENT_MODE,
+        .has_mpxy_channel = true,
+        .mpxy_channel = RISCV_RPMI_SBI_MPXY_MM_CHANNEL,
+    },
+    {
         .node_name = "sysmsi",
         .compatible = "riscv,rpmi-mpxy-system-msi",
         .service_group = RPMI_SRVGRP_SYSTEM_MSI,
@@ -551,8 +560,20 @@ static const RiscvRpmiMachineOps virt_rpmi_machine_ops = {
 
 static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
                                         const uint32_t *hart_ids,
-                                        uint32_t hart_count)
+                                        uint32_t hart_count,
+                                        BlockBackend *mm_store_blk)
 {
+    uint64_t mm_store_offset = 0;
+    uint64_t mm_store_size = 0;
+
+    if (mm_store_blk) {
+        hwaddr flashsize = s->memmap[VIRT_FLASH].size / 2;
+
+        assert(flashsize > VIRT_RPMI_MM_PFLASH_STORE_SIZE);
+        mm_store_offset = flashsize - VIRT_RPMI_MM_PFLASH_STORE_SIZE;
+        mm_store_size = VIRT_RPMI_MM_PFLASH_STORE_SIZE;
+    }
+
     return (RiscvRpmiConfig) {
         .doorbell_base = s->memmap[VIRT_RPMI_DOORBELL].base,
         .shmem_base = s->memmap[VIRT_RPMI_SHMEM].base,
@@ -560,6 +581,9 @@ static RiscvRpmiConfig virt_rpmi_config(RISCVVirtState *s,
         .a2p_req_size = VIRT_RPMI_A2P_REQ_SIZE,
         .p2a_req_size = VIRT_RPMI_P2A_REQ_SIZE,
         .platform_info = "QEMU RISC-V virt RPMI",
+        .mm_store_blk = mm_store_blk,
+        .mm_store_offset = mm_store_offset,
+        .mm_store_size = mm_store_size,
         .machine_ops = &virt_rpmi_machine_ops,
         .hart_ids = hart_ids,
         .hart_count = hart_count,
@@ -1052,6 +1076,12 @@ static void virt_machine_init(MachineState *machine)
     /* SiFive Test MMIO device */
     sifive_test_create(s->memmap[VIRT_TEST].base);
 
+    for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
+        /* Map legacy -drive if=pflash to machine properties */
+        pflash_cfi01_legacy_drive(s->flash[i],
+                                  drive_get(IF_PFLASH, 0, i));
+    }
+
     if (s->have_rpmi) {
         MachineClass *mc = MACHINE_GET_CLASS(machine);
         const CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(machine);
@@ -1063,7 +1093,8 @@ static void virt_machine_init(MachineState *machine)
             rpmi_hart_ids[i] = possible_cpus->cpus[i].arch_id;
         }
 
-        rpmi_cfg = virt_rpmi_config(s, rpmi_hart_ids, machine->smp.cpus);
+        rpmi_cfg = virt_rpmi_config(s, rpmi_hart_ids, machine->smp.cpus,
+                                    pflash_cfi01_get_blk(s->flash[1]));
         riscv_rpmi_create(&rpmi_cfg, &error_fatal);
     }
 
@@ -1097,11 +1128,6 @@ static void virt_machine_init(MachineState *machine)
     sysbus_create_simple("goldfish_rtc", s->memmap[VIRT_RTC].base,
         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
 
-    for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
-        /* Map legacy -drive if=pflash to machine properties */
-        pflash_cfi01_legacy_drive(s->flash[i],
-                                  drive_get(IF_PFLASH, 0, i));
-    }
     virt_flash_map(s, system_memory);
 
     /* load/create device tree */
